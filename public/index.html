@@ -39,8 +39,9 @@
   .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:1.2rem;cursor:pointer;
     transition:transform .18s ease,box-shadow .18s ease,border-color .18s;box-shadow:0 1px 2px rgba(20,20,30,.04)}
   .card:hover{transform:translateY(-3px);box-shadow:0 12px 30px rgba(80,70,160,.13);border-color:#dcd8f5}
-  .av{width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--accent-soft);display:grid;place-items:center;
+  .av{position:relative;width:56px;height:56px;border-radius:50%;background:var(--accent-soft);display:grid;place-items:center;
     font-weight:700;color:var(--accent);font-size:1.3rem;overflow:hidden}
+  .av img,.fav img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
   .card .name{font-family:var(--serif);font-size:1.25rem;font-weight:600;margin:.7rem 0 .1rem;line-height:1.2}
   .card .nip05{color:var(--accent);font-size:.82rem;font-weight:500}
   .card .about{color:var(--muted);font-size:.9rem;margin-top:.5rem;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -63,7 +64,8 @@
   .panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:1.2rem 1.3rem;box-shadow:0 1px 2px rgba(20,20,30,.04)}
   .panel h3{font-size:.74rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:.9rem}
   .follows{display:flex;flex-wrap:wrap;gap:.5rem}
-  .follows .fav{width:34px;height:34px;border-radius:50%;background:var(--accent-soft);object-fit:cover}
+  .follows .fav{position:relative;width:32px;height:32px;border-radius:50%;background:var(--accent-soft);overflow:hidden;transition:transform .12s}
+  .follows .fav:hover{transform:scale(1.2);z-index:1}
   pre{font-family:var(--mono);font-size:.74rem;line-height:1.55;color:#2a2a35;white-space:pre-wrap;word-break:break-word;max-height:460px;overflow:auto}
   .k{color:var(--accent)} .s{color:#1c8c6b}
   footer{text-align:center;color:var(--faint);font-size:.8rem;margin-top:3rem}
@@ -91,10 +93,11 @@ const short = (pk) => pk ? pk.slice(0, 8) + '…' + pk.slice(-4) : '';
 const content = (p) => { try { return JSON.parse(p.content || '{}'); } catch { return {}; } };
 const initial = (c, pk) => (c.name || c.display_name || pk || '?').trim()[0]?.toUpperCase() || '?';
 
+function hueFrom(s = '') { let h = 0; for (const ch of String(s)) h = (h * 31 + ch.charCodeAt(0)) % 360; return h; }
+function gradStyle(seed) { const a = hueFrom(seed), b = (a + 38) % 360; return `background:linear-gradient(135deg,hsl(${a} 68% 70%),hsl(${b} 72% 55%));color:#fff`; }
 function avatar(c, pk, cls = 'av') {
-  const pic = c.picture;
-  if (pic) return `<img class="${cls}" src="${esc(pic)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'${cls}',textContent:'${esc(initial(c,pk))}'}))">`;
-  return `<div class="${cls}">${esc(initial(c, pk))}</div>`;
+  const img = c.picture ? `<img src="${esc(c.picture)}" alt="" onerror="this.style.display='none'">` : '';
+  return `<div class="${cls}" style="${gradStyle(pk)}">${esc(initial(c, pk))}${img}</div>`;
 }
 
 function highlight(obj) {
@@ -106,7 +109,7 @@ function highlight(obj) {
 async function home() {
   location.hash = '';
   view.innerHTML = '<div class="loading">loading recent identities…</div>';
-  const profiles = await fetch('/api/profiles').then((r) => r.json()).catch(() => []);
+  const profiles = await fetch('/api/profiles?limit=36').then((r) => r.json()).catch(() => []);
   $('#stat').textContent = profiles.length ? `${profiles.length} recently active identities` : '';
   if (!profiles.length) { view.innerHTML = '<div class="loading">No profiles indexed yet. Start the indexer and refresh.</div>'; return; }
   view.innerHTML = `<div class="grid">${profiles.map((p) => {
@@ -149,7 +152,7 @@ async function profile(pk) {
     <div class="sections">
       <div class="panel"><h3>DID document</h3><pre>${highlight(doc)}</pre></div>
       <div class="panel"><h3>Following · ${follows.length}</h3>
-        ${follows.length ? `<div class="follows">${follows.slice(0, 60).map((d) => `<a class="fav" title="${esc(d)}" href="#${d.replace('did:nostr:', '')}"></a>`).join('')}</div>`
+        ${follows.length ? `<div class="follows">${follows.slice(0, 96).map((d) => { const fk = d.replace('did:nostr:', ''); return `<a class="fav" style="${gradStyle(fk)}" title="${esc(fk)}" href="#${fk}"></a>`; }).join('')}</div>`
           : '<div style="color:var(--faint);font-size:.9rem">No follow list indexed.</div>'}
       </div>
     </div>

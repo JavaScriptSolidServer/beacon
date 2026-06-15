@@ -13,8 +13,8 @@ export async function startServer(port = process.env.PORT || 3000) {
   const app = express();
   app.use(express.static(PUBLIC));
 
-  app.get('/api/profiles', async (_req, res, next) => {
-    try { res.json(await recentProfiles(10)); } catch (e) { next(e); }
+  app.get('/api/profiles', async (req, res, next) => {
+    try { res.json(await recentProfiles(Math.min(Number(req.query.limit) || 30, 100))); } catch (e) { next(e); }
   });
   app.get('/api/profile/:pubkey', async (req, res, next) => {
     try { res.json(await getProfile(req.params.pubkey)); } catch (e) { next(e); }
