@@ -45,13 +45,19 @@ export function buildDidDocument(pubkey, { profile, follows, relays } = {}) {
     } catch { /* malformed kind-0 content */ }
   }
 
-  // kind 3 -> follows (did:nostr of each p-tag)
+  // kind 3 -> follows (did:nostr of each followed key). Accept both the raw
+  // kind-3 event ({tags:[["p",hex],…]}, what our indexer writes) and the
+  // derived nostr-beacon shape ({follows:[hex,…], count}, from an imported dump).
+  let followHexes = [];
   if (Array.isArray(follows?.tags)) {
-    const f = follows.tags
-      .filter((t) => t[0] === 'p' && HEX64.test(String(t[1]).toLowerCase()))
-      .map((t) => `did:nostr:${String(t[1]).toLowerCase()}`);
-    if (f.length) doc.follows = f;
+    followHexes = follows.tags.filter((t) => t[0] === 'p').map((t) => t[1]);
+  } else if (Array.isArray(follows?.follows)) {
+    followHexes = follows.follows;
   }
+  const f = followHexes
+    .filter((h) => HEX64.test(String(h).toLowerCase()))
+    .map((h) => `did:nostr:${String(h).toLowerCase()}`);
+  if (f.length) doc.follows = f;
 
   // kind 10002 -> service (Relay)
   if (Array.isArray(relays?.tags)) {

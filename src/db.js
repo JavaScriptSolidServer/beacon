@@ -26,9 +26,16 @@ export async function connect() {
   client = new MongoClient(uri);
   await client.connect();
   db = client.db(dbName);
-  // non-unique index for query/dedupe perf — does not change the doc shape
+  // pubkey index for query/dedupe perf — does not change the doc shape.
+  // Tolerate a pre-existing index (e.g. an imported nostr-beacon dump already
+  // carries a *unique* pubkey_1); a spec conflict (code 86) just means it's
+  // already there and serving lookups, so it is safe to ignore.
   for (const name of new Set(Object.values(COLLECTIONS))) {
-    await db.collection(name).createIndex({ pubkey: 1 });
+    try {
+      await db.collection(name).createIndex({ pubkey: 1 });
+    } catch (e) {
+      if (e?.code !== 86) throw e;
+    }
   }
   return db;
 }

@@ -32,6 +32,12 @@ test('enhanced: profile (kind 0), follows (kind 3), service (kind 10002)', () =>
   assert.equal(d.service[0].serviceEndpoint, 'wss://relay.example/');
 });
 
+test('follows: derived nostr-beacon shape ({follows:[hex,…]}) also resolves', () => {
+  const a = 'a'.repeat(64), b = 'b'.repeat(64);
+  const d = buildDidDocument(PK, { follows: { follows: [a, b], count: 2 } });
+  assert.deepEqual(d.follows, [`did:nostr:${a}`, `did:nostr:${b}`]);
+});
+
 test('rejects a non-hex (e.g. npub) identifier', () => {
   assert.equal(buildDidDocument('npub1xxx'), null);
   assert.equal(buildDidDocument(''), null);
