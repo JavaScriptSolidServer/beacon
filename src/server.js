@@ -50,8 +50,25 @@ export async function startServer(port = process.env.PORT || 3000) {
   });
 
   app.use((err, _req, res, _next) => res.status(500).json({ error: err.message }));
-  app.listen(port, () => console.log(`[beacon] read API on :${port}`));
-  return app;
+
+  const server = await listenWithSkip(app, Number(port) || 3000);
+  console.log(`[beacon] serving on http://localhost:${server.address().port}`);
+  return server;
+}
+
+// Try `port`, skipping to the next port on EADDRINUSE (so a busy 3000 just moves on).
+function listenWithSkip(app, port, attempts = 25) {
+  return new Promise((resolve, reject) => {
+    const tryPort = (p, left) => {
+      const server = app.listen(p);
+      server.once('listening', () => resolve(server));
+      server.once('error', (e) => {
+        if (e.code === 'EADDRINUSE' && left > 0) { console.log(`[beacon] port ${p} busy, skipping…`); tryPort(p + 1, left - 1); }
+        else reject(e);
+      });
+    };
+    tryPort(port, attempts);
+  });
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) startServer();
