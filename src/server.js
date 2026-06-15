@@ -18,24 +18,25 @@ const shell = () => (SHELL ??= readFileSync(path.join(PUBLIC, 'index.html'), 'ut
 // Inject <title> + Open Graph / Twitter meta into the SPA shell at <!--OGP-->.
 function renderShell(meta = {}) {
   const m = {
-    title: 'Beacon · a directory of did:nostr identities',
+    title: 'nostr.social · a directory of did:nostr identities',
     description: 'Profiles, the follow graph, and a verifiable DID document for every did:nostr key — indexed live from Nostr.',
-    url: `${SITE}/`, type: 'website', image: '', ...meta,
+    url: `${SITE}/`, type: 'website', ...meta,
   };
+  const image = m.image || `${SITE}/og.png`; // fall back to the site banner
   const tags = [
     `<title>${escAttr(m.title)}</title>`,
     `<meta name="description" content="${escAttr(m.description)}">`,
-    `<meta property="og:site_name" content="Beacon">`,
+    `<meta property="og:site_name" content="nostr.social">`,
     `<meta property="og:type" content="${escAttr(m.type)}">`,
     `<meta property="og:title" content="${escAttr(m.title)}">`,
     `<meta property="og:description" content="${escAttr(m.description)}">`,
     `<meta property="og:url" content="${escAttr(m.url)}">`,
-    m.image && `<meta property="og:image" content="${escAttr(m.image)}">`,
-    `<meta name="twitter:card" content="${m.image ? 'summary_large_image' : 'summary'}">`,
+    `<meta property="og:image" content="${escAttr(image)}">`,
+    `<meta name="twitter:card" content="summary_large_image">`,
     `<meta name="twitter:title" content="${escAttr(m.title)}">`,
     `<meta name="twitter:description" content="${escAttr(m.description)}">`,
-    m.image && `<meta name="twitter:image" content="${escAttr(m.image)}">`,
-  ].filter(Boolean).join('\n  ');
+    `<meta name="twitter:image" content="${escAttr(image)}">`,
+  ].join('\n  ');
   return shell().replace('<!--OGP-->', tags);
 }
 
@@ -61,7 +62,7 @@ export async function startServer(port = process.env.PORT || 3000) {
       const name = c.name || c.display_name || `did:nostr:${id.slice(0, 8)}…`;
       const about = String(c.about || `A did:nostr identity · ${id.slice(0, 16)}…`).replace(/\s+/g, ' ').slice(0, 180);
       res.type('html').send(renderShell({
-        title: `${name} · Beacon`, description: about, url: `${SITE}/${id}`,
+        title: `${name} · nostr.social`, description: about, url: `${SITE}/${id}`,
         type: 'profile', image: c.picture || '',
       }));
     } catch (e) { next(e); }
