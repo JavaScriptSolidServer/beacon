@@ -51,6 +51,13 @@ export async function startServer(port = process.env.PORT || 3000) {
   // home shell (default OGP)
   app.get('/', (_req, res) => res.type('html').send(renderShell()));
 
+  // "link your pod" onboarding shell
+  app.get('/link', (_req, res) => res.type('html').send(renderShell({
+    title: 'Link your pod · nostr.social',
+    description: 'Link your nostr key to a Solid pod so did:nostr resolves to your WebID — one-click sign-in via jss.live SSO.',
+    url: `${SITE}/link`,
+  })));
+
   // per-profile shell at /<pubkey> with that identity's OGP (crawlable canonical
   // URL). RegExp route constrained to 64-hex, so it never collides with /api,
   // /healthz, /.well-known, or static assets.

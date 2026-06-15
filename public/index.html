@@ -86,12 +86,39 @@
   .card .counts strong{color:var(--ink);font-weight:600}
   .seclabel{font-size:.74rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin:.4rem 0 1rem}
   .chip strong{font-weight:700}
+
+  /* topbar */
+  .topbar{display:flex;align-items:center;justify-content:space-between;gap:1rem;max-width:1040px;margin:0 auto;padding:1.1rem 1.2rem 0}
+  .tb-brand{display:inline-flex;align-items:center;gap:.5rem;font-weight:700;letter-spacing:-.01em;color:var(--muted);font-size:.95rem}
+  .tb-nav{display:flex;align-items:center;gap:1.1rem}
+  .tb-nav>a{font-size:.88rem;font-weight:500;color:var(--muted)}
+  .tb-nav>a:hover{color:var(--accent)}
+  .tb-cta{background:var(--accent);color:#fff!important;padding:.5rem .9rem;border-radius:999px;font-weight:600;box-shadow:0 4px 14px rgba(109,94,252,.3);transition:transform .15s,box-shadow .15s}
+  .tb-cta:hover{transform:translateY(-1px);box-shadow:0 8px 22px rgba(109,94,252,.4)}
+  @media(max-width:560px){.tb-nav>a:not(.tb-cta){display:none}}
+  /* link page */
+  .link-panel{max-width:620px;margin:0 auto}
+  .link-panel h2{font-family:var(--serif);font-size:1.8rem;font-weight:600;margin-bottom:.6rem}
+  .link-panel p{color:var(--muted);margin-bottom:.4rem}
+  .link-form{display:flex;flex-wrap:wrap;gap:.6rem;margin-top:1.1rem}
+  .link-form input{flex:1;min-width:240px;font-family:var(--mono);font-size:.85rem;border:1px solid var(--line);border-radius:10px;padding:.7rem .9rem;outline:none}
+  .link-form input:focus{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+  .cta{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:.7rem 1.2rem;font-weight:600;font-size:.9rem;cursor:pointer;font-family:var(--sans)}
+  .cta:disabled{opacity:.55;cursor:default}
+  .link-status{width:100%;font-size:.88rem;color:var(--muted);margin-top:.5rem;line-height:1.5}
+  .link-status.ok{color:#1c8c6b} .link-status.err{color:#c0392b}
 </style>
 </head>
 <body>
+<header class="topbar">
+  <a class="tb-brand" href="/"><span class="dot"></span> nostr.social</a>
+  <nav class="tb-nav">
+    <a href="/link">Link your pod</a>
+    <a class="tb-cta" href="https://jss.live/sso/?resolver=https://nostr.social" target="_blank" rel="noopener">Sign in with did:nostr</a>
+  </nav>
+</header>
 <main>
   <div class="hero">
-    <span class="mark"><span class="dot"></span> Beacon</span>
     <h1>A directory of <em style="font-style:italic">did:nostr</em> identities</h1>
     <p>Profiles, the follow graph, and a verifiable DID document for every key &mdash; indexed live from Nostr.</p>
     <div class="searchwrap"><input id="q" type="search" placeholder="Search by name, nip05, npub, or hex pubkey…" autocomplete="off" spellcheck="false"></div>
@@ -206,6 +233,88 @@ async function profile(pk) {
   $('#back').onclick = () => navigate('/');
 }
 
+// ---- link your pod (onboarding) ----
+const RELAYS = ['wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net'];
+
+function publishEvent(event) {
+  return Promise.all(RELAYS.map((url) => new Promise((resolve) => {
+    let ws, done = false;
+    const finish = (ok) => { if (!done) { done = true; try { ws.close(); } catch {} resolve({ url, ok }); } };
+    try { ws = new WebSocket(url); } catch { return finish(false); }
+    ws.onopen = () => ws.send(JSON.stringify(['EVENT', event]));
+    ws.onmessage = (m) => { try { const d = JSON.parse(m.data); if (d[0] === 'OK' && d[1] === event.id) finish(!!d[2]); } catch {} };
+    ws.onerror = () => finish(false);
+    setTimeout(() => finish(false), 6000);
+  })));
+}
+
+const linkForm = (val) => `<div class="link-form">
+  <input id="webid" type="url" placeholder="https://you.solid.social/profile/card#me" value="${esc(val)}">
+  <button id="dolink" class="cta">Publish link</button>
+  <div id="linkstatus" class="link-status"></div>
+</div>`;
+
+async function linkView() {
+  if ($('#q')) $('#q').value = '';
+  $('#stat').innerHTML = '';
+  const panel = (inner) => { view.innerHTML = `<div class="detail"><div class="back" id="back">← all identities</div><div class="panel link-panel">${inner}</div></div>`; $('#back').onclick = () => navigate('/'); };
+
+  view.innerHTML = '<div class="loading">checking your signer…</div>';
+  if (!window.nostr) {
+    panel(`<h2>Link your pod</h2>
+      <p>Linking your nostr key to a Solid pod lets <strong>did:nostr</strong> resolve to your WebID — so one-click <em>Sign in with did:nostr</em> works.</p>
+      <p>First you need a NIP-07 signer extension:</p>
+      <div class="chips" style="margin-top:.8rem">
+        <a class="chip" href="https://github.com/JavaScriptSolidServer/podkey" target="_blank" rel="noopener">Podkey ↗</a>
+        <a class="chip" href="https://github.com/melvincarvalho/xlogin" target="_blank" rel="noopener">xlogin ↗</a>
+      </div>`);
+    return;
+  }
+  let pubkey;
+  try { pubkey = (await window.nostr.getPublicKey()).toLowerCase(); }
+  catch { panel('<h2>Link your pod</h2><p>Your signer declined to share your public key. Reload and try again.</p>'); return; }
+
+  const doc = await fetch(`/api/did/${pubkey}`).then((r) => r.json()).catch(() => null);
+  const aka = (doc?.alsoKnownAs || []).find((x) => /^https?:\/\//.test(x));
+  if (aka) {
+    panel(`<h2>You're linked ✓</h2>
+      <p><code>did:nostr:${short(pubkey)}</code> resolves to your WebID:</p>
+      <div class="didline"><span>${esc(aka)}</span></div>
+      <p style="margin-top:1.1rem">Test it: <a href="https://jss.live/sso/?resolver=https://nostr.social" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">Sign in with did:nostr →</a></p>
+      <details style="margin-top:1.2rem"><summary style="cursor:pointer;color:var(--muted)">Change linked pod</summary>${linkForm(aka)}</details>`);
+  } else {
+    panel(`<h2>Link your pod</h2>
+      <p><code>did:nostr:${short(pubkey)}</code> isn't linked to a Solid pod yet. Enter your WebID (your pod's profile URL) and we'll publish an <code>alsoKnownAs</code> to your nostr profile (kind&nbsp;0), signed by your key.</p>
+      ${linkForm('')}`);
+  }
+  wireLink(pubkey);
+}
+
+function wireLink(pubkey) {
+  const btn = $('#dolink'); if (!btn) return;
+  const status = $('#linkstatus');
+  const say = (msg, kind = '') => { status.textContent = msg; status.className = 'link-status' + (kind ? ' ' + kind : ''); };
+  btn.onclick = async () => {
+    const webid = $('#webid').value.trim();
+    if (!/^https?:\/\/.+/.test(webid)) return say('Enter a valid WebID URL (https://…).', 'err');
+    btn.disabled = true; say('Building your updated profile…');
+    try {
+      const raw = await fetch(`/api/profile/${pubkey}`).then((r) => r.json()).catch(() => null);
+      let c = {}; try { c = JSON.parse(raw?.content || '{}'); } catch {}
+      c.alsoKnownAs = [webid];
+      const unsigned = { kind: 0, pubkey, created_at: Math.floor(Date.now() / 1000), tags: [], content: JSON.stringify(c) };
+      say('Requesting your signature…');
+      const signed = await window.nostr.signEvent(unsigned);
+      say('Publishing to relays…');
+      const results = await publishEvent(signed);
+      const ok = results.filter((r) => r.ok).length;
+      if (ok) say(`Published to ${ok}/${results.length} relays. did:nostr:${short(pubkey)} now points to ${webid}. beacon will re-index shortly, then Sign in with did:nostr works.`, 'ok');
+      else say('No relay accepted the event — try again or check your relays.', 'err');
+    } catch (err) { say('Signing/publishing failed: ' + (err?.message || err), 'err'); }
+    finally { btn.disabled = false; }
+  };
+}
+
 function navigate(path) { if (location.pathname !== path) history.pushState({}, '', path); route(); }
 
 let searchTimer;
@@ -216,6 +325,7 @@ function onSearch() {
 }
 
 function route() {
+  if (location.pathname === '/link') return linkView();
   const m = location.pathname.match(/^\/([0-9a-f]{64})$/i);
   if (m) return profile(m[1].toLowerCase());
   const h = location.hash.slice(1);                 // legacy #<hex> links still resolve
