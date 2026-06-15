@@ -132,7 +132,7 @@ const fmt = (n) => {
 function cardHtml(p) {
   const c = content(p);
   const ct = p._counts || {};
-  return `<a class="card" href="/p/${p.pubkey}" data-pk="${p.pubkey}">
+  return `<a class="card" href="/${p.pubkey}" data-pk="${p.pubkey}">
     ${avatar(c, p.pubkey)}
     <div class="name">${esc(c.name || c.display_name || short(p.pubkey))}</div>
     ${c.nip05 ? `<div class="nip05">${esc(c.nip05)}</div>` : ''}
@@ -197,7 +197,7 @@ async function profile(pk) {
     <div class="sections">
       <div class="panel"><h3>DID document</h3><pre>${highlight(didOnly(doc))}</pre></div>
       <div class="panel"><h3>Following · ${follows.length}</h3>
-        ${follows.length ? `<div class="follows">${follows.slice(0, 96).map((d) => { const fk = d.replace('did:nostr:', ''); return `<a class="fav" data-pk="${fk}" style="${gradStyle(fk)}" title="${esc(fk)}" href="/p/${fk}"></a>`; }).join('')}</div>`
+        ${follows.length ? `<div class="follows">${follows.slice(0, 96).map((d) => { const fk = d.replace('did:nostr:', ''); return `<a class="fav" data-pk="${fk}" style="${gradStyle(fk)}" title="${esc(fk)}" href="/${fk}"></a>`; }).join('')}</div>`
           : '<div style="color:var(--faint);font-size:.9rem">No follow list indexed.</div>'}
       </div>
     </div>
@@ -215,7 +215,7 @@ function onSearch() {
 }
 
 function route() {
-  const m = location.pathname.match(/^\/p\/([0-9a-f]{64})$/i);
+  const m = location.pathname.match(/^\/([0-9a-f]{64})$/i);
   if (m) return profile(m[1].toLowerCase());
   const h = location.hash.slice(1);                 // legacy #<hex> links still resolve
   if (/^[0-9a-f]{64}$/.test(h)) return profile(h);
@@ -227,7 +227,7 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('a[data-pk]');
   if (!el || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
   e.preventDefault();
-  navigate('/p/' + el.dataset.pk);
+  navigate('/' + el.dataset.pk);
 });
 $('#q').addEventListener('input', onSearch);
 window.addEventListener('popstate', route);

@@ -50,17 +50,18 @@ export async function startServer(port = process.env.PORT || 3000) {
   // home shell (default OGP)
   app.get('/', (_req, res) => res.type('html').send(renderShell()));
 
-  // per-profile shell with that identity's OGP (crawlable canonical URL)
-  app.get('/p/:id', async (req, res, next) => {
+  // per-profile shell at /<pubkey> with that identity's OGP (crawlable canonical
+  // URL). RegExp route constrained to 64-hex, so it never collides with /api,
+  // /healthz, /.well-known, or static assets.
+  app.get(/^\/([0-9a-f]{64})$/, async (req, res, next) => {
     try {
-      const id = String(req.params.id).toLowerCase();
-      if (!/^[0-9a-f]{64}$/.test(id)) return res.type('html').send(renderShell());
+      const id = req.params[0].toLowerCase();
       const p = await getProfile(id);
       let c = {}; try { c = JSON.parse(p?.content || '{}'); } catch { /* malformed */ }
       const name = c.name || c.display_name || `did:nostr:${id.slice(0, 8)}…`;
       const about = String(c.about || `A did:nostr identity · ${id.slice(0, 16)}…`).replace(/\s+/g, ' ').slice(0, 180);
       res.type('html').send(renderShell({
-        title: `${name} · Beacon`, description: about, url: `${SITE}/p/${id}`,
+        title: `${name} · Beacon`, description: about, url: `${SITE}/${id}`,
         type: 'profile', image: c.picture || '',
       }));
     } catch (e) { next(e); }
