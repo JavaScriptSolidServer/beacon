@@ -3,8 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Beacon · a directory of did:nostr identities</title>
-<meta name="description" content="A living directory of did:nostr identities — profiles, the follow graph, and a verifiable DID document for every key.">
+<!--OGP-->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400..600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -36,7 +35,7 @@
 
   /* grid of profiles */
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem;margin-top:1rem}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:1.2rem;cursor:pointer;
+  .card{display:block;color:inherit;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:1.2rem;cursor:pointer;
     transition:transform .18s ease,box-shadow .18s ease,border-color .18s;box-shadow:0 1px 2px rgba(20,20,30,.04)}
   .card:hover{transform:translateY(-3px);box-shadow:0 12px 30px rgba(80,70,160,.13);border-color:#dcd8f5}
   .av{position:relative;width:56px;height:56px;border-radius:50%;background:var(--accent-soft);display:grid;place-items:center;
@@ -133,19 +132,18 @@ const fmt = (n) => {
 function cardHtml(p) {
   const c = content(p);
   const ct = p._counts || {};
-  return `<div class="card" data-pk="${p.pubkey}">
+  return `<a class="card" href="/p/${p.pubkey}" data-pk="${p.pubkey}">
     ${avatar(c, p.pubkey)}
     <div class="name">${esc(c.name || c.display_name || short(p.pubkey))}</div>
     ${c.nip05 ? `<div class="nip05">${esc(c.nip05)}</div>` : ''}
     <div class="counts"><strong>${fmt(ct.followers)}</strong> followers · <strong>${fmt(ct.following)}</strong> following</div>
     ${c.about ? `<div class="about">${esc(c.about)}</div>` : ''}
     <div class="did">did:nostr:${short(p.pubkey)}</div>
-  </div>`;
+  </a>`;
 }
 
 function renderGrid(profiles, label) {
   view.innerHTML = `${label ? `<div class="seclabel">${label}</div>` : ''}<div class="grid">${profiles.map(cardHtml).join('')}</div>`;
-  view.querySelectorAll('.card').forEach((el) => { el.onclick = () => { location.hash = el.dataset.pk; }; });
 }
 
 async function loadStats() {
@@ -199,28 +197,40 @@ async function profile(pk) {
     <div class="sections">
       <div class="panel"><h3>DID document</h3><pre>${highlight(didOnly(doc))}</pre></div>
       <div class="panel"><h3>Following · ${follows.length}</h3>
-        ${follows.length ? `<div class="follows">${follows.slice(0, 96).map((d) => { const fk = d.replace('did:nostr:', ''); return `<a class="fav" style="${gradStyle(fk)}" title="${esc(fk)}" href="#${fk}"></a>`; }).join('')}</div>`
+        ${follows.length ? `<div class="follows">${follows.slice(0, 96).map((d) => { const fk = d.replace('did:nostr:', ''); return `<a class="fav" data-pk="${fk}" style="${gradStyle(fk)}" title="${esc(fk)}" href="/p/${fk}"></a>`; }).join('')}</div>`
           : '<div style="color:var(--faint);font-size:.9rem">No follow list indexed.</div>'}
       </div>
     </div>
   </div>`;
-  $('#back').onclick = () => { location.hash = ''; };
+  $('#back').onclick = () => navigate('/');
 }
+
+function navigate(path) { if (location.pathname !== path) history.pushState({}, '', path); route(); }
 
 let searchTimer;
 function onSearch() {
   const q = $('#q').value.trim();
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => { if (!q) route(); else searchView(q); }, 220);
+  searchTimer = setTimeout(() => { if (!q) (location.pathname === '/' ? home() : navigate('/')); else searchView(q); }, 220);
 }
 
 function route() {
-  const pk = location.hash.slice(1);
-  if (/^[0-9a-f]{64}$/.test(pk)) profile(pk); else home();
+  const m = location.pathname.match(/^\/p\/([0-9a-f]{64})$/i);
+  if (m) return profile(m[1].toLowerCase());
+  const h = location.hash.slice(1);                 // legacy #<hex> links still resolve
+  if (/^[0-9a-f]{64}$/.test(h)) return profile(h);
+  return home();
 }
 
+// delegated SPA nav for any [data-pk] link (cards, follow dots)
+document.addEventListener('click', (e) => {
+  const el = e.target.closest('a[data-pk]');
+  if (!el || e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+  e.preventDefault();
+  navigate('/p/' + el.dataset.pk);
+});
 $('#q').addEventListener('input', onSearch);
-window.addEventListener('hashchange', route);
+window.addEventListener('popstate', route);
 loadStats();
 route();
 </script>

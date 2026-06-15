@@ -1,12 +1,43 @@
 // Thin read API over the indexed social graph.
 import express from 'express';
 import path from 'node:path';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { getProfile, getFollows, getRelays, recentProfiles, connect, stats, searchProfiles, enrichCounts, followerCount } from './db.js';
 import { buildDidDocument } from './diddoc.js';
 import 'dotenv/config';
 
 const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
+const SITE = process.env.SITE_URL || 'https://nostr.social';
+
+// ---- server-rendered OGP (social crawlers don't run JS) --------------------
+const escAttr = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+let SHELL;
+const shell = () => (SHELL ??= readFileSync(path.join(PUBLIC, 'index.html'), 'utf8'));
+
+// Inject <title> + Open Graph / Twitter meta into the SPA shell at <!--OGP-->.
+function renderShell(meta = {}) {
+  const m = {
+    title: 'Beacon · a directory of did:nostr identities',
+    description: 'Profiles, the follow graph, and a verifiable DID document for every did:nostr key — indexed live from Nostr.',
+    url: `${SITE}/`, type: 'website', image: '', ...meta,
+  };
+  const tags = [
+    `<title>${escAttr(m.title)}</title>`,
+    `<meta name="description" content="${escAttr(m.description)}">`,
+    `<meta property="og:site_name" content="Beacon">`,
+    `<meta property="og:type" content="${escAttr(m.type)}">`,
+    `<meta property="og:title" content="${escAttr(m.title)}">`,
+    `<meta property="og:description" content="${escAttr(m.description)}">`,
+    `<meta property="og:url" content="${escAttr(m.url)}">`,
+    m.image && `<meta property="og:image" content="${escAttr(m.image)}">`,
+    `<meta name="twitter:card" content="${m.image ? 'summary_large_image' : 'summary'}">`,
+    `<meta name="twitter:title" content="${escAttr(m.title)}">`,
+    `<meta name="twitter:description" content="${escAttr(m.description)}">`,
+    m.image && `<meta name="twitter:image" content="${escAttr(m.image)}">`,
+  ].filter(Boolean).join('\n  ');
+  return shell().replace('<!--OGP-->', tags);
+}
 
 export async function startServer(port = process.env.PORT || 3000) {
   await connect();
@@ -14,7 +45,26 @@ export async function startServer(port = process.env.PORT || 3000) {
   // Public read-only resolver: allow cross-origin fetches so browser-based
   // did:nostr resolvers can read the documents.
   app.use((_req, res, next) => { res.setHeader('Access-Control-Allow-Origin', '*'); next(); });
-  app.use(express.static(PUBLIC));
+  app.use(express.static(PUBLIC, { index: false }));
+
+  // home shell (default OGP)
+  app.get('/', (_req, res) => res.type('html').send(renderShell()));
+
+  // per-profile shell with that identity's OGP (crawlable canonical URL)
+  app.get('/p/:id', async (req, res, next) => {
+    try {
+      const id = String(req.params.id).toLowerCase();
+      if (!/^[0-9a-f]{64}$/.test(id)) return res.type('html').send(renderShell());
+      const p = await getProfile(id);
+      let c = {}; try { c = JSON.parse(p?.content || '{}'); } catch { /* malformed */ }
+      const name = c.name || c.display_name || `did:nostr:${id.slice(0, 8)}…`;
+      const about = String(c.about || `A did:nostr identity · ${id.slice(0, 16)}…`).replace(/\s+/g, ' ').slice(0, 180);
+      res.type('html').send(renderShell({
+        title: `${name} · Beacon`, description: about, url: `${SITE}/p/${id}`,
+        type: 'profile', image: c.picture || '',
+      }));
+    } catch (e) { next(e); }
+  });
 
   // Liveness/readiness: confirms Mongo is reachable (for haproxy httpchk + monitoring).
   app.get('/healthz', async (_req, res) => {
