@@ -73,6 +73,20 @@
   footer{text-align:center;color:var(--faint);font-size:.8rem;margin-top:3rem}
   footer a{color:var(--accent)}
   .loading{text-align:center;color:var(--faint);padding:3rem;font-size:.9rem}
+
+  /* search */
+  .searchwrap{margin:1.9rem auto .2rem;max-width:31rem}
+  .searchwrap input{width:100%;font-family:var(--sans);font-size:1rem;color:var(--ink);background:#fff;
+    border:1px solid var(--line);border-radius:999px;padding:.82rem 1.25rem;outline:none;
+    box-shadow:0 1px 2px rgba(20,20,30,.04);transition:border-color .15s,box-shadow .15s}
+  .searchwrap input:focus{border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+  .searchwrap input::placeholder{color:var(--faint)}
+  .hero .stat strong{color:var(--muted);font-weight:700}
+  /* counts + section label */
+  .card .counts{font-size:.8rem;color:var(--muted);margin-top:.5rem}
+  .card .counts strong{color:var(--ink);font-weight:600}
+  .seclabel{font-size:.74rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin:.4rem 0 1rem}
+  .chip strong{font-weight:700}
 </style>
 </head>
 <body>
@@ -81,6 +95,7 @@
     <span class="mark"><span class="dot"></span> Beacon</span>
     <h1>A directory of <em style="font-style:italic">did:nostr</em> identities</h1>
     <p>Profiles, the follow graph, and a verifiable DID document for every key &mdash; indexed live from Nostr.</p>
+    <div class="searchwrap"><input id="q" type="search" placeholder="Search by name, nip05, npub, or hex pubkey…" autocomplete="off" spellcheck="false"></div>
     <div class="stat" id="stat"></div>
   </div>
   <div id="view"></div>
@@ -108,32 +123,61 @@ function highlight(obj) {
     .replace(/: (&quot;[^&]*?&quot;)/g, ': <span class="s">$1</span>');
 }
 
-async function home() {
-  location.hash = '';
-  view.innerHTML = '<div class="loading">loading recent identities…</div>';
-  const profiles = await fetch('/api/profiles?limit=36').then((r) => r.json()).catch(() => []);
-  $('#stat').textContent = profiles.length ? `${profiles.length} recently active identities` : '';
-  if (!profiles.length) { view.innerHTML = '<div class="loading">No profiles indexed yet. Start the indexer and refresh.</div>'; return; }
-  view.innerHTML = `<div class="grid">${profiles.map((p) => {
-    const c = content(p);
-    return `<div class="card" data-pk="${p.pubkey}">
-      ${avatar(c, p.pubkey)}
-      <div class="name">${esc(c.name || c.display_name || short(p.pubkey))}</div>
-      ${c.nip05 ? `<div class="nip05">${esc(c.nip05)}</div>` : ''}
-      ${c.about ? `<div class="about">${esc(c.about)}</div>` : ''}
-      <div class="did">did:nostr:${short(p.pubkey)}</div>
-    </div>`;
-  }).join('')}</div>`;
-  view.querySelectorAll('.card').forEach((el) => el.onclick = () => { location.hash = el.dataset.pk; });
+const fmt = (n) => {
+  n = Number(n) || 0;
+  if (n >= 1e6) return (n / 1e6).toFixed(n < 1e7 ? 1 : 0) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(n < 1e4 ? 1 : 0) + 'k';
+  return String(n);
+};
+
+function cardHtml(p) {
+  const c = content(p);
+  const ct = p._counts || {};
+  return `<div class="card" data-pk="${p.pubkey}">
+    ${avatar(c, p.pubkey)}
+    <div class="name">${esc(c.name || c.display_name || short(p.pubkey))}</div>
+    ${c.nip05 ? `<div class="nip05">${esc(c.nip05)}</div>` : ''}
+    <div class="counts"><strong>${fmt(ct.followers)}</strong> followers · <strong>${fmt(ct.following)}</strong> following</div>
+    ${c.about ? `<div class="about">${esc(c.about)}</div>` : ''}
+    <div class="did">did:nostr:${short(p.pubkey)}</div>
+  </div>`;
 }
+
+function renderGrid(profiles, label) {
+  view.innerHTML = `${label ? `<div class="seclabel">${label}</div>` : ''}<div class="grid">${profiles.map(cardHtml).join('')}</div>`;
+  view.querySelectorAll('.card').forEach((el) => { el.onclick = () => { location.hash = el.dataset.pk; }; });
+}
+
+async function loadStats() {
+  const s = await fetch('/api/stats').then((r) => r.json()).catch(() => null);
+  if (s) $('#stat').innerHTML = `<strong>${fmt(s.profiles)}</strong> identities · <strong>${fmt(s.follows)}</strong> follow lists · <strong>${fmt(s.relays)}</strong> relays`;
+}
+
+async function home() {
+  if ($('#q')) $('#q').value = '';
+  view.innerHTML = '<div class="loading">loading identities…</div>';
+  const profiles = await fetch('/api/profiles?limit=36').then((r) => r.json()).catch(() => []);
+  if (!profiles.length) { view.innerHTML = '<div class="loading">No profiles indexed yet. Start the indexer and refresh.</div>'; return; }
+  renderGrid(profiles, 'Recently active');
+}
+
+async function searchView(q) {
+  view.innerHTML = '<div class="loading">searching…</div>';
+  const results = await fetch(`/api/search?q=${encodeURIComponent(q)}`).then((r) => r.json()).catch(() => []);
+  if (!Array.isArray(results) || !results.length) { view.innerHTML = `<div class="loading">No matches for &ldquo;${esc(q)}&rdquo;.</div>`; return; }
+  renderGrid(results, `${results.length} result${results.length > 1 ? 's' : ''} for &ldquo;${esc(q)}&rdquo;`);
+}
+
+// strip our UI-only count fields so the displayed JSON is the pure DID document
+const didOnly = ({ followersCount, followingCount, ...d }) => d;
 
 async function profile(pk) {
   view.innerHTML = '<div class="loading">resolving DID document…</div>';
-  $('#stat').textContent = '';
   const doc = await fetch(`/api/did/${pk}`).then((r) => r.json()).catch(() => null);
   if (!doc || doc.error) { view.innerHTML = '<div class="loading">Could not resolve this identity.</div>'; return; }
   const c = doc.profile || {};
   const follows = doc.follows || [];
+  const followers = doc.followersCount, following = doc.followingCount ?? follows.length;
   view.innerHTML = `<div class="detail">
     <div class="back" id="back">← all identities</div>
     <div class="phead">
@@ -143,30 +187,41 @@ async function profile(pk) {
         ${c.nip05 ? `<div class="nip05">${esc(c.nip05)}</div>` : ''}
         ${c.about ? `<div class="about">${esc(c.about)}</div>` : ''}
         <div class="chips">
+          <span class="chip"><strong>${fmt(followers)}</strong> followers</span>
+          <span class="chip"><strong>${fmt(following)}</strong> following</span>
+          ${doc.service?.length ? `<span class="chip">${doc.service.length} relay${doc.service.length > 1 ? 's' : ''}</span>` : ''}
           ${c.website ? `<a class="chip" href="${esc(c.website)}" target="_blank" rel="noopener">${esc(c.website.replace(/^https?:\/\//, ''))}</a>` : ''}
           ${c.lud16 ? `<span class="chip">⚡ ${esc(c.lud16)}</span>` : ''}
-          ${doc.service?.length ? `<span class="chip">${doc.service.length} relay${doc.service.length > 1 ? 's' : ''}</span>` : ''}
-          <span class="chip">${follows.length} following</span>
         </div>
       </div>
     </div>
     <a class="didline" href="/.well-known/did/nostr/${pk}.json" target="_blank" rel="noopener" title="Resolve the DID document (application/did+json)"><span>${esc(doc.id)}</span><span class="resolve">resolve ↗</span></a>
     <div class="sections">
-      <div class="panel"><h3>DID document</h3><pre>${highlight(doc)}</pre></div>
+      <div class="panel"><h3>DID document</h3><pre>${highlight(didOnly(doc))}</pre></div>
       <div class="panel"><h3>Following · ${follows.length}</h3>
         ${follows.length ? `<div class="follows">${follows.slice(0, 96).map((d) => { const fk = d.replace('did:nostr:', ''); return `<a class="fav" style="${gradStyle(fk)}" title="${esc(fk)}" href="#${fk}"></a>`; }).join('')}</div>`
           : '<div style="color:var(--faint);font-size:.9rem">No follow list indexed.</div>'}
       </div>
     </div>
   </div>`;
-  $('#back').onclick = home;
+  $('#back').onclick = () => { location.hash = ''; };
+}
+
+let searchTimer;
+function onSearch() {
+  const q = $('#q').value.trim();
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(() => { if (!q) route(); else searchView(q); }, 220);
 }
 
 function route() {
   const pk = location.hash.slice(1);
   if (/^[0-9a-f]{64}$/.test(pk)) profile(pk); else home();
 }
+
+$('#q').addEventListener('input', onSearch);
 window.addEventListener('hashchange', route);
+loadStats();
 route();
 </script>
 </body>

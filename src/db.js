@@ -64,3 +64,70 @@ export const getRelays = (pubkey) => one(10002, pubkey);
 export async function recentProfiles(limit = 10) {
   return (await connect()).collection(COLLECTIONS[0]).find().sort({ created_at: -1 }).limit(limit).toArray();
 }
+
+// ---- search ----------------------------------------------------------------
+
+const HEX64 = /^[0-9a-f]{64}$/;
+const BECH32 = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+
+// Minimal bech32 decode (npub -> 32-byte hex). No checksum check: a bad key
+// simply finds nothing on lookup.
+function npubToHex(str) {
+  const s = String(str).toLowerCase();
+  const pos = s.lastIndexOf('1');
+  if (pos < 1) return null;
+  const words = [];
+  for (const ch of s.slice(pos + 1)) { const v = BECH32.indexOf(ch); if (v === -1) return null; words.push(v); }
+  let acc = 0, bits = 0; const bytes = [];
+  for (const w of words.slice(0, -6)) { acc = (acc << 5) | w; bits += 5; while (bits >= 8) { bits -= 8; bytes.push((acc >> bits) & 0xff); } }
+  return bytes.length === 32 ? bytes.map((b) => b.toString(16).padStart(2, '0')).join('') : null;
+}
+
+/** Resolve a search term to a 64-hex pubkey if it is one (hex or npub), else null. */
+export function toPubkey(q) {
+  const s = String(q || '').trim().toLowerCase();
+  if (HEX64.test(s)) return s;
+  if (s.startsWith('npub1')) return npubToHex(s);
+  return null;
+}
+
+/** Search profiles: exact key (hex/npub) or full-text over profile content. */
+export async function searchProfiles(q, limit = 24) {
+  const query = String(q || '').trim();
+  if (!query) return [];
+  const col = (await connect()).collection(COLLECTIONS[0]);
+  const hex = toPubkey(query);
+  if (hex) { const p = await col.findOne({ pubkey: hex }); return p ? [p] : []; }
+  return col.find({ $text: { $search: query } }, { projection: { score: { $meta: 'textScore' } } })
+    .sort({ score: { $meta: 'textScore' } })
+    .limit(Math.min(limit, 50)).toArray();
+}
+
+// ---- graph metrics ---------------------------------------------------------
+
+export async function stats() {
+  const db = await connect();
+  const [profiles, follows, relays] = await Promise.all([
+    db.collection(COLLECTIONS[0]).estimatedDocumentCount(),
+    db.collection(COLLECTIONS[3]).estimatedDocumentCount(),
+    db.collection(COLLECTIONS[10002]).estimatedDocumentCount(),
+  ]);
+  return { profiles, follows, relays };
+}
+
+/** In-degree: how many follow-lists include this pubkey (uses the follows_1 index). */
+export async function followerCount(pubkey) {
+  return (await connect()).collection(COLLECTIONS[3]).countDocuments({ follows: pubkey });
+}
+
+/** Batched { pk: { followers, following } } for a set of pubkeys (for grids). */
+export async function enrichCounts(pubkeys) {
+  const fc = (await connect()).collection(COLLECTIONS[3]);
+  const ids = [...new Set(pubkeys)].filter(Boolean);
+  const out = Object.fromEntries(ids.map((p) => [p, { followers: 0, following: 0 }]));
+  if (!ids.length) return out;
+  const lists = await fc.find({ pubkey: { $in: ids } }, { projection: { pubkey: 1, count: 1, follows: 1 } }).toArray();
+  for (const l of lists) if (out[l.pubkey]) out[l.pubkey].following = l.count ?? (l.follows?.length || 0);
+  await Promise.all(ids.map(async (pk) => { out[pk].followers = await fc.countDocuments({ follows: pk }); }));
+  return out;
+}
