@@ -187,6 +187,7 @@ async function profile(pk) {
         <div class="chips">
           <span class="chip"><strong>${fmt(followers)}</strong> followers</span>
           <span class="chip"><strong>${fmt(following)}</strong> following</span>
+          <a class="chip" href="https://nostr.at/p/${pk}" target="_blank" rel="noopener" title="View this identity on the nostr.at aggregator">nostr.at ↗</a>
           ${doc.service?.length ? `<span class="chip">${doc.service.length} relay${doc.service.length > 1 ? 's' : ''}</span>` : ''}
           ${c.website ? `<a class="chip" href="${esc(c.website)}" target="_blank" rel="noopener">${esc(c.website.replace(/^https?:\/\//, ''))}</a>` : ''}
           ${c.lud16 ? `<span class="chip">⚡ ${esc(c.lud16)}</span>` : ''}
