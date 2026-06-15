@@ -114,7 +114,6 @@
   <a class="tb-brand" href="/"><span class="dot"></span> nostr.social</a>
   <nav class="tb-nav">
     <a href="/link">Link your pod</a>
-    <a href="https://jss.live/sso/?resolver=https://nostr.social" target="_blank" rel="noopener">Sign in</a>
   </nav>
 </header>
 <main>
@@ -128,6 +127,8 @@
   <footer>powered by <a href="https://github.com/JavaScriptSolidServer/beacon">beacon</a> · each profile resolves at <code>/.well-known/did/nostr/&lt;pubkey&gt;.json</code></footer>
 </main>
 
+<!-- xlogin: universal Nostr/Solid login widget — extension-free (guest key / paste / extension) -->
+<script src="https://unpkg.com/xlogin@0.0.15"></script>
 <script type="module">
 const $ = (s) => document.querySelector(s);
 const view = $('#view');
@@ -254,36 +255,39 @@ const linkForm = (val) => `<div class="link-form">
   <div id="linkstatus" class="link-status"></div>
 </div>`;
 
-async function linkView() {
+function panelLink(inner) {
+  view.innerHTML = `<div class="detail"><div class="back" id="back">← all identities</div><div class="panel link-panel">${inner}</div></div>`;
+  $('#back').onclick = () => navigate('/');
+}
+
+function linkView() {
   if ($('#q')) $('#q').value = '';
   $('#stat').innerHTML = '';
-  const panel = (inner) => { view.innerHTML = `<div class="detail"><div class="back" id="back">← all identities</div><div class="panel link-panel">${inner}</div></div>`; $('#back').onclick = () => navigate('/'); };
+  panelLink(`<h2>Link your pod</h2>
+    <p>Linking your nostr key to a Solid pod lets <strong>did:nostr</strong> resolve to your WebID — so one-click sign-in works. No browser extension needed.</p>
+    <div class="link-form" style="margin-top:1.1rem"><button id="link-start" class="cta">Sign in to continue</button><div id="linkstatus" class="link-status"></div></div>`);
+  const b = $('#link-start'); if (b) b.onclick = startLink;
+}
 
-  view.innerHTML = '<div class="loading">checking your signer…</div>';
-  if (!window.nostr) {
-    panel(`<h2>Link your pod</h2>
-      <p>Linking your nostr key to a Solid pod lets <strong>did:nostr</strong> resolve to your WebID — so one-click <em>Sign in with did:nostr</em> works.</p>
-      <p>First you need a NIP-07 signer extension:</p>
-      <div class="chips" style="margin-top:.8rem">
-        <a class="chip" href="https://github.com/JavaScriptSolidServer/podkey" target="_blank" rel="noopener">Podkey ↗</a>
-        <a class="chip" href="https://github.com/melvincarvalho/xlogin" target="_blank" rel="noopener">xlogin ↗</a>
-      </div>`);
-    return;
-  }
+async function startLink() {
+  const status = $('#linkstatus');
+  const say = (m, k = '') => { if (status) { status.textContent = m; status.className = 'link-status' + (k ? ' ' + k : ''); } };
+  if (!window.nostr) return say('Login widget still loading — try again in a moment.', 'err');
+  say('Opening sign-in…');
   let pubkey;
   try { pubkey = (await window.nostr.getPublicKey()).toLowerCase(); }
-  catch { panel('<h2>Link your pod</h2><p>Your signer declined to share your public key. Reload and try again.</p>'); return; }
-
+  catch { return say('Sign-in cancelled — click to try again.', 'err'); }
+  say('Resolving your did:nostr…');
   const doc = await fetch(`/api/did/${pubkey}`).then((r) => r.json()).catch(() => null);
   const aka = (doc?.alsoKnownAs || []).find((x) => /^https?:\/\//.test(x));
   if (aka) {
-    panel(`<h2>You're linked ✓</h2>
+    panelLink(`<h2>You're linked ✓</h2>
       <p><code>did:nostr:${short(pubkey)}</code> resolves to your WebID:</p>
       <div class="didline"><span>${esc(aka)}</span></div>
-      <p style="margin-top:1.1rem">Test it: <a href="https://jss.live/sso/?resolver=https://nostr.social" target="_blank" rel="noopener" style="color:var(--accent);font-weight:600">Sign in with did:nostr →</a></p>
-      <details style="margin-top:1.2rem"><summary style="cursor:pointer;color:var(--muted)">Change linked pod</summary>${linkForm(aka)}</details>`);
+      <p style="margin-top:1rem;color:var(--muted)">Apps can now resolve you to your pod.</p>
+      <details style="margin-top:1.1rem"><summary style="cursor:pointer;color:var(--muted)">Change linked pod</summary>${linkForm(aka)}</details>`);
   } else {
-    panel(`<h2>Link your pod</h2>
+    panelLink(`<h2>Link your pod</h2>
       <p><code>did:nostr:${short(pubkey)}</code> isn't linked to a Solid pod yet. Enter your WebID (your pod's profile URL) and we'll publish an <code>alsoKnownAs</code> to your nostr profile (kind&nbsp;0), signed by your key.</p>
       ${linkForm('')}`);
   }
