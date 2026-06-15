@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Beacon · a directory of did:nostr identities</title>
+<meta name="description" content="A living directory of did:nostr identities — profiles, the follow graph, and a verifiable DID document for every key.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400..600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#FBFAF8">
+<style>
+  :root{
+    --bg:#FBFAF8; --surface:#fff; --ink:#1a1a23; --muted:#65656f; --faint:#9a9aa6;
+    --line:#ECEAE3; --accent:#6d5efc; --accent2:#22b8cf; --accent-soft:#efecff;
+    --serif:'Newsreader',Georgia,serif; --sans:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:var(--bg);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
+  ::selection{background:var(--accent-soft)}
+  a{color:inherit;text-decoration:none}
+  main{max-width:1040px;margin:0 auto;padding:0 1.2rem 5rem}
+
+  /* hero */
+  .hero{position:relative;text-align:center;padding:5rem 1rem 3rem;overflow:hidden}
+  .hero::before{content:"";position:absolute;inset:-40% 0 auto;height:420px;z-index:0;
+    background:radial-gradient(40% 60% at 30% 20%,rgba(109,94,252,.22),transparent 70%),
+               radial-gradient(45% 55% at 75% 30%,rgba(34,184,207,.18),transparent 70%);
+    filter:blur(8px)}
+  .hero>*{position:relative;z-index:1}
+  .mark{display:inline-flex;align-items:center;gap:.5rem;font-weight:700;letter-spacing:-.01em;font-size:.95rem;color:var(--muted)}
+  .dot{width:12px;height:12px;border-radius:50%;background:radial-gradient(circle at 35% 35%,#fff,var(--accent));box-shadow:0 0 18px 2px rgba(109,94,252,.55)}
+  h1{font-family:var(--serif);font-size:clamp(2.6rem,6vw,4rem);font-weight:600;letter-spacing:-.02em;line-height:1.04;margin:1.2rem 0 .6rem}
+  .hero p{color:var(--muted);font-size:1.12rem;max-width:30rem;margin:0 auto}
+  .hero .stat{margin-top:1.4rem;font-family:var(--mono);font-size:.8rem;color:var(--faint)}
+
+  /* grid of profiles */
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:1rem;margin-top:1rem}
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:1.2rem;cursor:pointer;
+    transition:transform .18s ease,box-shadow .18s ease,border-color .18s;box-shadow:0 1px 2px rgba(20,20,30,.04)}
+  .card:hover{transform:translateY(-3px);box-shadow:0 12px 30px rgba(80,70,160,.13);border-color:#dcd8f5}
+  .av{width:56px;height:56px;border-radius:50%;object-fit:cover;background:var(--accent-soft);display:grid;place-items:center;
+    font-weight:700;color:var(--accent);font-size:1.3rem;overflow:hidden}
+  .card .name{font-family:var(--serif);font-size:1.25rem;font-weight:600;margin:.7rem 0 .1rem;line-height:1.2}
+  .card .nip05{color:var(--accent);font-size:.82rem;font-weight:500}
+  .card .about{color:var(--muted);font-size:.9rem;margin-top:.5rem;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+  .card .did{font-family:var(--mono);font-size:.7rem;color:var(--faint);margin-top:.7rem}
+
+  /* detail */
+  .detail{padding-top:2rem}
+  .back{display:inline-flex;align-items:center;gap:.4rem;color:var(--muted);font-size:.88rem;font-weight:500;margin-bottom:1.6rem;cursor:pointer}
+  .back:hover{color:var(--accent)}
+  .phead{display:flex;gap:1.3rem;align-items:flex-start}
+  .phead .av{width:88px;height:88px;font-size:2rem;flex:none}
+  .phead h2{font-family:var(--serif);font-size:2.1rem;font-weight:600;line-height:1.1}
+  .phead .nip05{color:var(--accent);font-weight:500}
+  .phead .about{color:var(--muted);margin-top:.5rem;max-width:42rem}
+  .chips{margin-top:.7rem;display:flex;gap:.5rem;flex-wrap:wrap}
+  .chip{font-size:.78rem;font-weight:500;background:var(--accent-soft);color:var(--accent);padding:.25rem .7rem;border-radius:999px}
+  .didline{font-family:var(--mono);font-size:.8rem;color:var(--muted);background:#fff;border:1px solid var(--line);border-radius:10px;padding:.55rem .75rem;margin-top:1rem;word-break:break-all}
+  .sections{display:grid;grid-template-columns:1fr;gap:1.4rem;margin-top:2rem}
+  @media(min-width:760px){.sections{grid-template-columns:1.1fr 1fr}}
+  .panel{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:1.2rem 1.3rem;box-shadow:0 1px 2px rgba(20,20,30,.04)}
+  .panel h3{font-size:.74rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);margin-bottom:.9rem}
+  .follows{display:flex;flex-wrap:wrap;gap:.5rem}
+  .follows .fav{width:34px;height:34px;border-radius:50%;background:var(--accent-soft);object-fit:cover}
+  pre{font-family:var(--mono);font-size:.74rem;line-height:1.55;color:#2a2a35;white-space:pre-wrap;word-break:break-word;max-height:460px;overflow:auto}
+  .k{color:var(--accent)} .s{color:#1c8c6b}
+  footer{text-align:center;color:var(--faint);font-size:.8rem;margin-top:3rem}
+  footer a{color:var(--accent)}
+  .loading{text-align:center;color:var(--faint);padding:3rem;font-size:.9rem}
+</style>
+</head>
+<body>
+<main>
+  <div class="hero">
+    <span class="mark"><span class="dot"></span> Beacon</span>
+    <h1>A directory of <em style="font-style:italic">did:nostr</em> identities</h1>
+    <p>Profiles, the follow graph, and a verifiable DID document for every key &mdash; indexed live from Nostr.</p>
+    <div class="stat" id="stat"></div>
+  </div>
+  <div id="view"></div>
+  <footer>powered by <a href="https://github.com/JavaScriptSolidServer/beacon">beacon</a> · each profile resolves at <code>/.well-known/did/nostr/&lt;pubkey&gt;.json</code></footer>
+</main>
+
+<script type="module">
+const $ = (s) => document.querySelector(s);
+const view = $('#view');
+const esc = (s) => String(s ?? '').replace(/[&<>]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const short = (pk) => pk ? pk.slice(0, 8) + '…' + pk.slice(-4) : '';
+const content = (p) => { try { return JSON.parse(p.content || '{}'); } catch { return {}; } };
+const initial = (c, pk) => (c.name || c.display_name || pk || '?').trim()[0]?.toUpperCase() || '?';
+
+function avatar(c, pk, cls = 'av') {
+  const pic = c.picture;
+  if (pic) return `<img class="${cls}" src="${esc(pic)}" alt="" onerror="this.replaceWith(Object.assign(document.createElement('div'),{className:'${cls}',textContent:'${esc(initial(c,pk))}'}))">`;
+  return `<div class="${cls}">${esc(initial(c, pk))}</div>`;
+}
+
+function highlight(obj) {
+  return esc(JSON.stringify(obj, null, 2))
+    .replace(/&quot;(@?\w+)&quot;:/g, '<span class="k">&quot;$1&quot;</span>:')
+    .replace(/: (&quot;[^&]*?&quot;)/g, ': <span class="s">$1</span>');
+}
+
+async function home() {
+  location.hash = '';
+  view.innerHTML = '<div class="loading">loading recent identities…</div>';
+  const profiles = await fetch('/api/profiles').then((r) => r.json()).catch(() => []);
+  $('#stat').textContent = profiles.length ? `${profiles.length} recently active identities` : '';
+  if (!profiles.length) { view.innerHTML = '<div class="loading">No profiles indexed yet. Start the indexer and refresh.</div>'; return; }
+  view.innerHTML = `<div class="grid">${profiles.map((p) => {
+    const c = content(p);
+    return `<div class="card" data-pk="${p.pubkey}">
+      ${avatar(c, p.pubkey)}
+      <div class="name">${esc(c.name || c.display_name || short(p.pubkey))}</div>
+      ${c.nip05 ? `<div class="nip05">${esc(c.nip05)}</div>` : ''}
+      ${c.about ? `<div class="about">${esc(c.about)}</div>` : ''}
+      <div class="did">did:nostr:${short(p.pubkey)}</div>
+    </div>`;
+  }).join('')}</div>`;
+  view.querySelectorAll('.card').forEach((el) => el.onclick = () => { location.hash = el.dataset.pk; });
+}
+
+async function profile(pk) {
+  view.innerHTML = '<div class="loading">resolving DID document…</div>';
+  $('#stat').textContent = '';
+  const doc = await fetch(`/api/did/${pk}`).then((r) => r.json()).catch(() => null);
+  if (!doc || doc.error) { view.innerHTML = '<div class="loading">Could not resolve this identity.</div>'; return; }
+  const c = doc.profile || {};
+  const follows = doc.follows || [];
+  view.innerHTML = `<div class="detail">
+    <div class="back" id="back">← all identities</div>
+    <div class="phead">
+      ${avatar(c, pk)}
+      <div>
+        <h2>${esc(c.name || short(pk))}</h2>
+        ${c.nip05 ? `<div class="nip05">${esc(c.nip05)}</div>` : ''}
+        ${c.about ? `<div class="about">${esc(c.about)}</div>` : ''}
+        <div class="chips">
+          ${c.website ? `<a class="chip" href="${esc(c.website)}" target="_blank" rel="noopener">${esc(c.website.replace(/^https?:\/\//, ''))}</a>` : ''}
+          ${c.lud16 ? `<span class="chip">⚡ ${esc(c.lud16)}</span>` : ''}
+          ${doc.service?.length ? `<span class="chip">${doc.service.length} relay${doc.service.length > 1 ? 's' : ''}</span>` : ''}
+          <span class="chip">${follows.length} following</span>
+        </div>
+      </div>
+    </div>
+    <div class="didline">${esc(doc.id)}</div>
+    <div class="sections">
+      <div class="panel"><h3>DID document</h3><pre>${highlight(doc)}</pre></div>
+      <div class="panel"><h3>Following · ${follows.length}</h3>
+        ${follows.length ? `<div class="follows">${follows.slice(0, 60).map((d) => `<a class="fav" title="${esc(d)}" href="#${d.replace('did:nostr:', '')}"></a>`).join('')}</div>`
+          : '<div style="color:var(--faint);font-size:.9rem">No follow list indexed.</div>'}
+      </div>
+    </div>
+  </div>`;
+  $('#back').onclick = home;
+}
+
+function route() {
+  const pk = location.hash.slice(1);
+  if (/^[0-9a-f]{64}$/.test(pk)) profile(pk); else home();
+}
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>

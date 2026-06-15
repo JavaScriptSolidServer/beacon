@@ -1,12 +1,17 @@
 // Thin read API over the indexed social graph.
 import express from 'express';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { getProfile, getFollows, getRelays, recentProfiles, connect } from './db.js';
 import { buildDidDocument } from './diddoc.js';
 import 'dotenv/config';
 
+const PUBLIC = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public');
+
 export async function startServer(port = process.env.PORT || 3000) {
   await connect();
   const app = express();
+  app.use(express.static(PUBLIC));
 
   app.get('/api/profiles', async (_req, res, next) => {
     try { res.json(await recentProfiles(10)); } catch (e) { next(e); }
