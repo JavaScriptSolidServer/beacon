@@ -3,7 +3,7 @@ import express from 'express';
 import path from 'node:path';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { getProfile, getFollows, getRelays, recentProfiles, connect, stats, searchProfiles, enrichCounts, followerCount } from './db.js';
+import { getProfile, getFollows, getRelays, recentProfiles, connect, stats, searchProfiles, enrichCounts, followerCount, relaysDirectory } from './db.js';
 import { buildDidDocument } from './diddoc.js';
 import 'dotenv/config';
 
@@ -56,6 +56,13 @@ export async function startServer(port = process.env.PORT || 3000) {
     title: 'Link your pod · nostr.social',
     description: 'Link your nostr key to a Solid pod so did:nostr resolves to your WebID — one-click sign-in via jss.live SSO.',
     url: `${SITE}/link`,
+  })));
+
+  // relay directory shell
+  app.get('/relays', (_req, res) => res.type('html').send(renderShell({
+    title: 'Relay directory · nostr.social',
+    description: 'A health-checked directory of Nostr relays — uptime, latency, write-acceptance, and paid/auth requirements.',
+    url: `${SITE}/relays`,
   })));
 
   // per-profile shell at /<pubkey> with that identity's OGP (crawlable canonical
@@ -118,6 +125,17 @@ export async function startServer(port = process.env.PORT || 3000) {
   });
   app.get('/api/relays/:pubkey', async (req, res, next) => {
     try { res.json(await getRelays(req.params.pubkey)); } catch (e) { next(e); }
+  });
+
+  // relay-health directory (firehose data): { total, online, lastChecked, relays }
+  app.get('/api/relays-directory', async (req, res, next) => {
+    try {
+      res.json(await relaysDirectory({
+        online: req.query.online === '1' || req.query.online === 'true',
+        sort: req.query.sort,
+        limit: req.query.limit,
+      }));
+    } catch (e) { next(e); }
   });
 
   // did:nostr resolution — build the conformant DID document from the index

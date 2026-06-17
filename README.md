@@ -34,7 +34,8 @@ npm run serve               # read API only
 - `GET /api/profiles` — recent profiles
 - `GET /api/profile/:pubkey`
 - `GET /api/follows/:pubkey`
-- `GET /api/relays/:pubkey`
+- `GET /api/relays/:pubkey` — that pubkey's kind-10002 relay list
+- `GET /api/relays-directory` — relay-health directory (`?online=1`, `?sort=quality|latency|recent`, `?limit=`)
 
 ## Status
 
