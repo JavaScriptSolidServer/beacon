@@ -143,7 +143,6 @@
   <a class="tb-brand" href="/"><span class="dot"></span> nostr.social</a>
   <nav class="tb-nav">
     <a href="/relays">Relays</a>
-    <a href="/link">Link your pod</a>
   </nav>
 </header>
 <main>
@@ -154,7 +153,7 @@
     <div class="stat" id="stat"></div>
   </div>
   <div id="view"></div>
-  <footer>powered by <a href="https://github.com/JavaScriptSolidServer/beacon">beacon</a> · each profile resolves at <code>/.well-known/did/nostr/&lt;pubkey&gt;.json</code></footer>
+  <footer>powered by <a href="https://github.com/JavaScriptSolidServer/beacon">beacon</a> · <a href="/link">link your pod</a> · each profile resolves at <code>/.well-known/did/nostr/&lt;pubkey&gt;.json</code></footer>
 </main>
 
 <!-- xlogin: universal Nostr/Solid login widget — extension-free (guest key / paste / extension) -->
@@ -350,7 +349,7 @@ function wireLink(pubkey) {
 }
 
 // ---- relay directory (firehose health data) ----
-const relaysState = { online: true, sortKey: 'uptime', dir: -1, rows: [], meta: {} };
+const relaysState = { online: true, sortKey: 'lastChecked', dir: -1, rows: [], meta: {} };
 const RCOLS = [
   { key: 'relay', label: 'Relay', num: false },
   { key: 'online', label: 'Status', num: false },
