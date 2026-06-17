@@ -27,6 +27,10 @@ npm start                   # indexer + read API
 # or run separately:
 npm run index               # indexer only
 npm run serve               # read API only
+
+# indexer flags (override the matching env var; see --help):
+node index.js --hoses profiles --no-legacy   # run a single hose, no legacy fallback
+node src/indexer.js --help
 ```
 
 ## Read API
