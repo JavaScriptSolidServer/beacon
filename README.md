@@ -39,7 +39,9 @@ npm run serve               # read API only
 
 ## Status
 
-v0 — MVP: indexer + read API + the regression-compatible schema. DID-document resolution endpoint (`/.well-known/did/nostr/:pubkey.json` via jss's `buildDidDocument`) is the next step, per the RFC.
+v0 — MVP: indexer + read API + the regression-compatible schema, plus the DID-document resolution endpoint (`/.well-known/did/nostr/:pubkey.json` via jss's `buildDidDocument`) and a `/relays` health directory.
+
+The indexer is being reworked into composable **hoses** (`src/hoses/`). Phase 1 is the **profiles hose** (kind 0): it schnorr-verifies each event before storing it, so a relay can't inject a forged `did:nostr` profile, and owns its Mongo indexes (incl. the `content_text` search index). Follows (kind 3) and relay lists (kind 10002) still use the raw upsert path until their phases.
 
 ## License
 
