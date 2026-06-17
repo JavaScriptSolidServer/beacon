@@ -107,12 +107,42 @@
   .cta:disabled{opacity:.55;cursor:default}
   .link-status{width:100%;font-size:.88rem;color:var(--muted);margin-top:.5rem;line-height:1.5}
   .link-status.ok{color:#1c8c6b} .link-status.err{color:#c0392b}
+
+  /* relay directory */
+  .relays-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:.6rem 1rem;margin:.4rem 0 1rem}
+  .relays-head h2{font-family:var(--serif);font-size:1.7rem;font-weight:600}
+  .relays-head .sub{color:var(--muted);font-size:.9rem}
+  .relays-controls{display:flex;flex-wrap:wrap;gap:.5rem;margin:.2rem 0 1rem}
+  .toggle{font-size:.82rem;font-weight:500;border:1px solid var(--line);background:#fff;color:var(--muted);
+    padding:.4rem .85rem;border-radius:999px;cursor:pointer;transition:border-color .15s,color .15s,background .15s}
+  .toggle:hover{border-color:var(--accent);color:var(--accent)}
+  .toggle.on{background:var(--accent-soft);border-color:#dcd8f5;color:var(--accent)}
+  .caveat{font-size:.8rem;color:var(--faint);background:#fff;border:1px solid var(--line);border-radius:10px;padding:.55rem .8rem;margin-bottom:1rem}
+  .rtable{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;font-size:.86rem}
+  .rtable thead th{text-align:left;font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);
+    padding:.7rem .8rem;border-bottom:1px solid var(--line);white-space:nowrap;cursor:pointer;user-select:none}
+  .rtable thead th:hover{color:var(--accent)}
+  .rtable thead th.num{text-align:right}
+  .rtable th .arrow{color:var(--accent);font-size:.65rem}
+  .rtable tbody td{padding:.6rem .8rem;border-bottom:1px solid var(--line);vertical-align:middle}
+  .rtable tbody tr:last-child td{border-bottom:none}
+  .rtable tbody tr:hover{background:#faf9ff}
+  .rtable td.num{text-align:right;font-family:var(--mono);font-size:.8rem}
+  .rtable .url{font-family:var(--mono);font-size:.82rem;word-break:break-all}
+  .rdot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:.45rem;vertical-align:middle}
+  .rdot.up{background:#1c8c6b;box-shadow:0 0 6px rgba(28,140,107,.5)} .rdot.down{background:#c0392b}
+  .rbadge{display:inline-block;font-size:.68rem;font-weight:600;padding:.12rem .45rem;border-radius:6px;margin-left:.3rem;white-space:nowrap}
+  .rbadge.ok{background:#e6f5ef;color:#1c8c6b} .rbadge.no{background:#f3eef0;color:#9a6a76}
+  .rbadge.pay{background:#fff3e0;color:#b26a00} .rbadge.auth{background:#fdeef0;color:#c0392b}
+  .ubar{display:inline-block;width:46px;height:6px;border-radius:3px;background:var(--line);vertical-align:middle;margin-left:.5rem;overflow:hidden}
+  .ubar>i{display:block;height:100%;background:linear-gradient(90deg,var(--accent2),var(--accent))}
 </style>
 </head>
 <body>
 <header class="topbar">
   <a class="tb-brand" href="/"><span class="dot"></span> nostr.social</a>
   <nav class="tb-nav">
+    <a href="/relays">Relays</a>
     <a href="/link">Link your pod</a>
   </nav>
 </header>
@@ -319,6 +349,84 @@ function wireLink(pubkey) {
   };
 }
 
+// ---- relay directory (firehose health data) ----
+const relaysState = { online: true, sortKey: 'uptime', dir: -1, rows: [], meta: {} };
+const RCOLS = [
+  { key: 'relay', label: 'Relay', num: false },
+  { key: 'online', label: 'Status', num: false },
+  { key: 'uptime', label: 'Uptime', num: true },
+  { key: 'responseTime', label: 'Latency', num: true },
+  { key: 'acceptsEvents', label: 'Writable', num: false },
+  { key: 'lastChecked', label: 'Checked', num: true },
+];
+
+function ageStr(iso) {
+  if (!iso) return '—';
+  const t = new Date(iso).getTime(); if (isNaN(t)) return '—';
+  const s = (Date.now() - t) / 1000;
+  for (const [sec, lbl] of [[31536000, 'y'], [2592000, 'mo'], [86400, 'd'], [3600, 'h'], [60, 'm']]) {
+    if (s >= sec) return Math.floor(s / sec) + lbl;
+  }
+  return 'now';
+}
+
+function cmpRelay(a, b, key, dir) {
+  let av = a[key], bv = b[key];
+  const an = av == null, bn = bv == null;        // unknown values always sort last
+  if (an && bn) return 0; if (an) return 1; if (bn) return -1;
+  if (typeof av === 'string') return dir * av.localeCompare(bv);
+  if (typeof av === 'boolean') { av = av ? 1 : 0; bv = bv ? 1 : 0; }
+  return dir * (av - bv);
+}
+
+function relayRow(r) {
+  const flags = (r.requiresPayment ? '<span class="rbadge pay">paid</span>' : '')
+    + (r.requiresAuth ? '<span class="rbadge auth">auth</span>' : '');
+  const up = r.uptime == null ? '—'
+    : `${Math.round(r.uptime)}%<span class="ubar"><i style="width:${Math.max(0, Math.min(100, r.uptime))}%"></i></span>`;
+  return `<tr>
+    <td class="url">${esc(r.relay)}${flags}</td>
+    <td><span class="rdot ${r.online ? 'up' : 'down'}"></span>${r.online ? 'online' : 'offline'}</td>
+    <td class="num">${up}</td>
+    <td class="num">${r.responseTime == null ? '—' : r.responseTime + 'ms'}</td>
+    <td>${r.acceptsEvents === true ? '<span class="rbadge ok">yes</span>' : r.acceptsEvents === false ? '<span class="rbadge no">no</span>' : '—'}</td>
+    <td class="num">${ageStr(r.lastChecked)}</td>
+  </tr>`;
+}
+
+function renderRelays() {
+  const { rows, meta, sortKey, dir, online } = relaysState;
+  const sorted = [...rows].sort((a, b) => cmpRelay(a, b, sortKey, dir));
+  const head = RCOLS.map((c) => `<th class="${c.num ? 'num' : ''}" data-key="${c.key}">${c.label}${sortKey === c.key ? ` <span class="arrow">${dir < 0 ? '▼' : '▲'}</span>` : ''}</th>`).join('');
+  view.innerHTML = `<div class="detail">
+    <div class="back" id="back">← all identities</div>
+    <div class="relays-head"><h2>Relay directory</h2>
+      <span class="sub"><strong>${fmt(meta.online)}</strong> online of <strong>${fmt(meta.total)}</strong> known relays</span></div>
+    <div class="caveat">Health snapshot · relays last checked <strong>${esc(meta.lastChecked ? ageStr(meta.lastChecked) + ' ago' : 'unknown')}</strong>. Live monitoring is paused, so these figures reflect that snapshot.</div>
+    <div class="relays-controls"><button class="toggle ${online ? 'on' : ''}" id="r-online">Online only</button></div>
+    <div style="overflow-x:auto"><table class="rtable"><thead><tr>${head}</tr></thead><tbody>${sorted.map(relayRow).join('')}</tbody></table></div>
+    <div class="caveat" style="margin-top:1rem">Showing ${sorted.length} relays. Click a column to sort.</div>
+  </div>`;
+  $('#back').onclick = () => navigate('/');
+  $('#r-online').onclick = () => { relaysState.online = !relaysState.online; relaysView(); };
+  view.querySelectorAll('.rtable thead th').forEach((th) => { th.onclick = () => {
+    const k = th.dataset.key;
+    if (relaysState.sortKey === k) relaysState.dir = -relaysState.dir;
+    else { relaysState.sortKey = k; relaysState.dir = k === 'relay' ? 1 : -1; }
+    renderRelays();
+  }; });
+}
+
+async function relaysView() {
+  if ($('#q')) $('#q').value = '';
+  $('#stat').innerHTML = '';
+  view.innerHTML = '<div class="loading">loading relay directory…</div>';
+  const data = await fetch(`/api/relays-directory?limit=2000${relaysState.online ? '&online=1' : ''}`).then((r) => r.json()).catch(() => null);
+  if (!data || !Array.isArray(data.relays)) { view.innerHTML = '<div class="loading">Could not load the relay directory.</div>'; return; }
+  relaysState.rows = data.relays; relaysState.meta = data;
+  renderRelays();
+}
+
 function navigate(path) { if (location.pathname !== path) history.pushState({}, '', path); route(); }
 
 let searchTimer;
@@ -330,6 +438,7 @@ function onSearch() {
 
 function route() {
   if (location.pathname === '/link') return linkView();
+  if (location.pathname === '/relays') return relaysView();
   const m = location.pathname.match(/^\/([0-9a-f]{64})$/i);
   if (m) return profile(m[1].toLowerCase());
   const h = location.hash.slice(1);                 // legacy #<hex> links still resolve

@@ -19,6 +19,10 @@ export const COLLECTIONS = {
   10002: process.env.MONGO_RELAYS_COLLECTION || 'relay_lists',
 };
 
+// Firehose relay-health directory (one doc per relay URL, written by the
+// nostr-beacon monitor). Distinct from `relay_lists` (per-pubkey kind 10002).
+const RELAY_DIRECTORY = process.env.MONGO_RELAY_DIRECTORY_COLLECTION || 'relays';
+
 let db, client;
 
 export async function connect() {
@@ -101,6 +105,35 @@ export async function searchProfiles(q, limit = 24) {
   return col.find({ $text: { $search: query } }, { projection: { score: { $meta: 'textScore' } } })
     .sort({ score: { $meta: 'textScore' } })
     .limit(Math.min(limit, 50)).toArray();
+}
+
+// ---- relay directory (firehose health data) --------------------------------
+
+// Fields the directory page needs — keep the projection tight; the raw docs
+// also carry publish-test internals and error strings we don't surface in v0.
+const RELAY_FIELDS = {
+  _id: 0, relay: 1, online: 1, uptime: 1, responseTime: 1, acceptsEvents: 1,
+  requiresAuth: 1, requiresPayment: 1, lastChecked: 1, checksOnline: 1, checksTotal: 1,
+};
+
+/**
+ * Read the relay-health directory. Returns a summary (for the freshness caveat)
+ * plus the matching rows. `online` filters to live relays; `sort` is one of
+ * 'quality' (uptime desc, latency asc), 'latency', or 'recent' (last checked).
+ */
+export async function relaysDirectory({ online = false, sort = 'quality', limit = 300 } = {}) {
+  const col = (await connect()).collection(RELAY_DIRECTORY);
+  const filter = online ? { online: true } : {};
+  const sortSpec = sort === 'recent' ? { lastChecked: -1 }
+    : sort === 'latency' ? { responseTime: 1 }
+    : { uptime: -1, responseTime: 1 }; // 'quality'
+  const [total, onlineCount, newest, relays] = await Promise.all([
+    col.estimatedDocumentCount(),
+    col.countDocuments({ online: true }),
+    col.find({}, { projection: { _id: 0, lastChecked: 1 } }).sort({ lastChecked: -1 }).limit(1).toArray(),
+    col.find(filter, { projection: RELAY_FIELDS }).sort(sortSpec).limit(Math.min(Number(limit) || 300, 2000)).toArray(),
+  ]);
+  return { total, online: onlineCount, lastChecked: newest[0]?.lastChecked || null, relays };
 }
 
 // ---- graph metrics ---------------------------------------------------------
