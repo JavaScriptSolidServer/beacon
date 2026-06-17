@@ -3,7 +3,9 @@
   "version": "0.0.1",
   "type": "module",
   "description": "did:nostr social-graph indexer (profiles + follows + relay lists) on MongoDB. Same schema as nostr-beacon for regression; DID-doc generation delegates to jss buildDidDocument per RFC.",
-  "bin": { "beacon": "index.js" },
+  "bin": {
+    "beacon": "index.js"
+  },
   "scripts": {
     "test": "node --test",
     "start": "node index.js",
@@ -11,6 +13,8 @@
     "serve": "node -e \"import('./src/server.js').then(m => m.startServer())\""
   },
   "dependencies": {
+    "@noble/curves": "^2.2.0",
+    "@noble/hashes": "^2.2.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "mongodb": "^6.8.0"

@@ -5,12 +5,17 @@
 // Subscribes to kind 0 (profile), 3 (follows / social graph), 10002 (relay
 // list) and upserts each raw event into Mongo.
 import { upsertEvent, connect } from './db.js';
+import profilesHose from './hoses/profiles.js';
 import 'dotenv/config';
 
 const RELAYS = (process.env.RELAYS || 'wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net')
   .split(',').map((s) => s.trim()).filter(Boolean);
 
-const KINDS = [0, 3, 10002];
+// Registered hoses (phase 1: profiles only). Each owns its kinds + ingest.
+// Kinds with no hose fall back to the legacy raw upsert until their own phase.
+const HOSES = [profilesHose];
+const hoseFor = (kind) => HOSES.find((h) => h.kinds.includes(kind));
+const KINDS = [...new Set([...HOSES.flatMap((h) => h.kinds), 3, 10002])];
 const SUB_ID = 'beacon';
 const RECONNECT_MS = 3000;
 
@@ -34,13 +39,16 @@ function connectRelay(url, onEvent) {
 }
 
 export async function runIndexer() {
-  await connect();
+  const db = await connect();
+  for (const h of HOSES) await h.ensureIndexes(db);
   console.log(`[beacon] indexing kinds ${KINDS.join(',')} from ${RELAYS.length} relays`);
   const onEvent = async (event) => {
     try {
-      if (await upsertEvent(event)) console.log(`[beacon] kind ${event.kind}  ${String(event.pubkey).slice(0, 12)}…`);
+      const hose = hoseFor(event.kind);
+      const stored = hose ? await hose.ingest(event, db) : await upsertEvent(event);
+      if (stored) console.log(`[beacon] kind ${event.kind}  ${String(event.pubkey).slice(0, 12)}…`);
     } catch (e) {
-      console.error('[beacon] upsert error:', e.message);
+      console.error('[beacon] ingest error:', e.message);
     }
   };
   const stoppers = RELAYS.map((url) => connectRelay(url, onEvent));
