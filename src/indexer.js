@@ -42,6 +42,38 @@ export function planIngest(allHoses = ALL_HOSES, env = process.env, legacyKindsA
 const SUB_ID = 'beacon';
 const RECONNECT_MS = 3000;
 
+export const USAGE = `beacon indexer — firehose into MongoDB
+
+Usage: node index.js [flags]    (or: node src/indexer.js [flags])
+
+Flags (override the matching env var):
+  --hoses <list>    comma list of hose names to run (env HOSES; default: all)
+  --no-legacy       disable the raw-upsert fallback for un-migrated kinds (INDEX_LEGACY_KINDS=0)
+  --legacy          force the legacy fallback on
+  -h, --help        show this help
+
+Env: MONGODB_URI, MONGO_DB, RELAYS, PORT — see .env.example`;
+
+/**
+ * Parse indexer CLI flags into an env-overlay (only keys the user passed).
+ * Merged over process.env by runIndexer so flags win and env is the fallback.
+ */
+export function parseArgs(argv = process.argv.slice(2)) {
+  const out = {};
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === '-h' || a === '--help') out.help = true;
+    else if (a === '--no-legacy') out.INDEX_LEGACY_KINDS = '0';
+    else if (a === '--legacy') out.INDEX_LEGACY_KINDS = '1';
+    else if (a === '--hoses' || a.startsWith('--hoses=')) {
+      const next = argv[i + 1];
+      out.HOSES = a.includes('=') ? a.slice(a.indexOf('=') + 1)
+        : (next && !next.startsWith('--') ? argv[++i] : '');
+    }
+  }
+  return out;
+}
+
 function connectRelay(url, kinds, onEvent) {
   let ws, closed = false, timer;
   const open = () => {
@@ -63,7 +95,9 @@ function connectRelay(url, kinds, onEvent) {
 
 export async function runIndexer() {
   const db = await connect();
-  const { hoses, hoseFor, kinds, legacy, unknown } = planIngest();
+  // CLI flags override env; env (process.env / .env) is the fallback.
+  const env = { ...process.env, ...parseArgs() };
+  const { hoses, hoseFor, kinds, legacy, unknown } = planIngest(ALL_HOSES, env);
   if (unknown.length) console.warn(`[beacon] unknown hose(s) in HOSES, ignored: ${unknown.join(', ')}`);
   if (!kinds.length) { console.warn('[beacon] no hoses enabled and no legacy kinds — nothing to index'); return { stop() {} }; }
   for (const h of hoses) await h.ensureIndexes(db);
@@ -87,4 +121,7 @@ export async function runIndexer() {
   return { stop };
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) runIndexer();
+if (import.meta.url === `file://${process.argv[1]}`) {
+  if (parseArgs().help) { console.log(USAGE); process.exit(0); }
+  runIndexer();
+}
