@@ -9,33 +9,32 @@
 import { upsertEvent, connect } from './db.js';
 import profilesHose from './hoses/profiles.js';
 import followsHose from './hoses/follows.js';
+import relaylistsHose from './hoses/relaylists.js';
 import 'dotenv/config';
 
 const RELAYS = (process.env.RELAYS || 'wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net')
   .split(',').map((s) => s.trim()).filter(Boolean);
 
 // All hoses that exist (grows each phase). `planIngest` selects which run.
-const ALL_HOSES = [profilesHose, followsHose];
-
-// Kinds not yet migrated to a hose: 10002 (relay lists). They use the legacy
-// raw-upsert path, on by default for local parity. Set INDEX_LEGACY_KINDS=0 to
-// turn it off so a single-hose deploy never writes collections still owned by
-// the legacy firehose processes.
-const LEGACY_KINDS = [10002];
+// Every event kind now has a hose, so there are no legacy kinds left — the
+// raw-upsert fallback and its INDEX_LEGACY_KINDS switch remain only as a safety
+// net for any kind a future phase adds before its hose lands.
+const ALL_HOSES = [profilesHose, followsHose, relaylistsHose];
+const LEGACY_KINDS = [];
 
 /**
- * Resolve the ingest plan from the registered hoses + env switches. Pure (env
- * passed in) so it's unit-testable. Returns the active hoses, a kind→hose
- * lookup, the union of kinds to subscribe to, and the legacy-fallback state.
+ * Resolve the ingest plan from the registered hoses + env switches. Pure (all
+ * inputs passed in) so it's unit-testable. Returns the active hoses, a
+ * kind→hose lookup, the union of kinds to subscribe to, and the legacy state.
  */
-export function planIngest(allHoses = ALL_HOSES, env = process.env) {
+export function planIngest(allHoses = ALL_HOSES, env = process.env, legacyKindsAll = LEGACY_KINDS) {
   const want = (env.HOSES || allHoses.map((h) => h.name).join(','))
     .split(',').map((s) => s.trim()).filter(Boolean);
   const hoses = allHoses.filter((h) => want.includes(h.name));
   const unknown = want.filter((n) => !allHoses.some((h) => h.name === n));
   const legacy = env.INDEX_LEGACY_KINDS !== '0' && env.INDEX_LEGACY_KINDS !== 'false';
   const hoseFor = (kind) => hoses.find((h) => h.kinds.includes(kind));
-  const legacyKinds = legacy ? LEGACY_KINDS.filter((k) => !hoseFor(k)) : [];
+  const legacyKinds = legacy ? legacyKindsAll.filter((k) => !hoseFor(k)) : [];
   const kinds = [...new Set([...hoses.flatMap((h) => h.kinds), ...legacyKinds])];
   return { hoses, hoseFor, kinds, legacy, legacyKinds, unknown };
 }

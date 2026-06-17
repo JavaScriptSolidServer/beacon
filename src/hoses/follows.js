@@ -7,11 +7,11 @@
 // relay map some clients still put in kind-3 `content`, seeding the `relays`
 // directory (discovery only — it never overwrites health metrics).
 import { verifySignature } from './event.js';
+import { harvestRelays, ensureRelayDirectoryIndex } from './relays.js';
 import { COLLECTIONS } from '../db.js';
 
 const KIND = 3;
 const HEX64 = /^[0-9a-f]{64}$/;
-const RELAY_DIRECTORY = process.env.MONGO_RELAY_DIRECTORY_COLLECTION || 'relays';
 
 /** Validate a kind-3 event. Unlike kind 0, content is optional / free-form. */
 export function verifyEvent(e) {
@@ -33,26 +33,13 @@ export function parseFollows(event) {
   return [...out];
 }
 
-// Trailing slash on bare origins (so `wss://r.com` and `wss://r.com/` dedupe);
-// keep an explicit path as-is. Non-ws(s) or unparseable URLs are dropped.
-export function canonicalizeRelayUrl(url) {
-  try {
-    const u = new URL(url);
-    if (u.protocol !== 'wss:' && u.protocol !== 'ws:') return null;
-    if (u.pathname === '' || u.pathname === '/') return `${u.protocol}//${u.host}/`;
-    return url;
-  } catch { return null; }
-}
-
 /** Relay URLs from the legacy NIP-65-ish relay map in kind-3 content. */
 export function relayUrlsFrom(event) {
   if (!event?.content) return [];
   let map;
   try { map = JSON.parse(event.content); } catch { return []; }
   if (!map || typeof map !== 'object') return [];
-  const out = new Set();
-  for (const k of Object.keys(map)) { const u = canonicalizeRelayUrl(k); if (u) out.add(u); }
-  return [...out];
+  return Object.keys(map);
 }
 
 export default {
@@ -65,7 +52,7 @@ export default {
     await col.createIndex({ pubkey: 1 }).catch(ok);
     await col.createIndex({ follows: 1 }).catch(ok); // reverse lookup / in-degree
     await col.createIndex({ created_at: -1 }).catch(ok);
-    await db.collection(RELAY_DIRECTORY).createIndex({ relay: 1 }).catch(ok);
+    await ensureRelayDirectoryIndex(db);
   },
 
   /** Verify, latest-wins upsert of the derived shape, then harvest relays. */
@@ -80,15 +67,7 @@ export default {
       { pubkey: event.pubkey, follows, created_at: event.created_at, count: follows.length },
       { upsert: true },
     );
-    // Discovery side-effect: seed newly-seen relay URLs without touching any
-    // existing health fields. Best-effort — never fail ingest on it.
-    const urls = relayUrlsFrom(event);
-    if (urls.length) {
-      await db.collection(RELAY_DIRECTORY).bulkWrite(
-        urls.map((relay) => ({ updateOne: { filter: { relay }, update: { $setOnInsert: { relay } }, upsert: true } })),
-        { ordered: false },
-      ).catch(() => {});
-    }
+    await harvestRelays(db, relayUrlsFrom(event)); // discovery; best-effort
     return true;
   },
 };
