@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { schnorr } from '@noble/curves/secp256k1.js';
 import { sha256 } from '@noble/hashes/sha2.js';
 import { hexToBytes, bytesToHex } from '@noble/hashes/utils.js';
-import { verifyEvent, parseFollows, relayUrlsFrom, canonicalizeRelayUrl } from '../src/hoses/follows.js';
+import { verifyEvent, parseFollows, relayUrlsFrom } from '../src/hoses/follows.js';
+import { canonicalizeRelayUrl } from '../src/hoses/relays.js';
 
 const enc = new TextEncoder();
 const PRIV = hexToBytes('0000000000000000000000000000000000000000000000000000000000000003');
@@ -60,17 +61,13 @@ test('canonicalizeRelayUrl: trailing slash on origins, path preserved, junk drop
   assert.equal(canonicalizeRelayUrl('garbage'), null);
 });
 
-test('relayUrlsFrom: parses the legacy relay map, canonicalizes + dedupes', () => {
+test('relayUrlsFrom: returns the raw relay-map keys (canon/dedup is harvestRelays\' job)', () => {
   const content = JSON.stringify({
     'wss://relay.example.com': { read: true, write: true },
-    'wss://relay.example.com/': { read: true, write: false }, // dedupes with above
     'wss://other.example.com/inbox': { read: true, write: true },
-    'https://bad.example.com': {}, // dropped (not ws/wss)
   });
-  assert.deepEqual(
-    relayUrlsFrom(signed({ content })).sort(),
-    ['wss://other.example.com/inbox', 'wss://relay.example.com/'],
-  );
+  assert.deepEqual(relayUrlsFrom(signed({ content })),
+    ['wss://relay.example.com', 'wss://other.example.com/inbox']);
 });
 
 test('relayUrlsFrom: empty / non-JSON content -> empty', () => {

@@ -45,8 +45,9 @@ The indexer is being reworked into composable **hoses** (`src/hoses/`), each own
 
 - **Profiles** (kind 0) — verifies + stores the raw event latest-wins, owns its indexes incl. the `content_text` search index.
 - **Follows** (kind 3) — verifies + stores the derived social-graph shape `{ pubkey, follows:[hex…], count }` (so in-degree works), and harvests relay URLs from legacy kind-3 content into the `relays` directory.
+- **Relay lists** (kind 10002) — verifies + stores the raw event latest-wins (the shape the DID document's `service` entries are built from), and harvests the `r`-tag URLs into the `relays` directory (the canonical relay-URL source).
 
-Relay lists (kind 10002) still use the raw upsert path until their phase.
+Every kind is now hose-owned; the legacy raw-upsert fallback is empty.
 
 ## License
 
