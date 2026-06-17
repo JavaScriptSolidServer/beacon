@@ -4,10 +4,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { planIngest } from '../src/indexer.js';
 
+// Fakes — the real LEGACY_KINDS is [10002] (kinds 0 and 3 are now hose-owned).
 const profiles = { name: 'profiles', kinds: [0] };
 const follows = { name: 'follows', kinds: [3] };
-const ONE = [profiles];          // mirrors today's registry
-const TWO = [profiles, follows]; // a future phase
+const ONE = [profiles];          // only profiles registered
+const TWO = [profiles, follows]; // the real registry
 
 const sorted = (a) => [...a].sort((x, y) => x - y);
 
@@ -15,12 +16,12 @@ test('default (no env): all registered hoses on + legacy kinds', () => {
   const p = planIngest(ONE, {});
   assert.deepEqual(p.hoses.map((h) => h.name), ['profiles']);
   assert.equal(p.legacy, true);
-  assert.deepEqual(sorted(p.kinds), [0, 3, 10002]);
+  assert.deepEqual(sorted(p.kinds), [0, 10002]); // 10002 is the only legacy kind
   assert.deepEqual(p.unknown, []);
 });
 
 test('empty HOSES string falls back to the default (all on)', () => {
-  assert.deepEqual(sorted(planIngest(ONE, { HOSES: '' }).kinds), [0, 3, 10002]);
+  assert.deepEqual(sorted(planIngest(ONE, { HOSES: '' }).kinds), [0, 10002]);
 });
 
 test('INDEX_LEGACY_KINDS=0 → only enabled hoses\' kinds, no legacy', () => {
@@ -42,13 +43,13 @@ test('unknown hose names are reported and ignored', () => {
 test('selecting only an unknown hose leaves no hose kinds (legacy still applies)', () => {
   const p = planIngest(ONE, { HOSES: 'nope' });
   assert.deepEqual(p.hoses, []);
-  assert.deepEqual(sorted(p.kinds), [3, 10002]); // legacy fallback only
+  assert.deepEqual(sorted(p.kinds), [10002]); // legacy fallback only
 });
 
-test('a hose that owns a legacy kind removes it from the legacy set (no double-subscribe)', () => {
+test('the real two-hose registry: profiles + follows own 0 and 3, legacy = 10002', () => {
   const p = planIngest(TWO, {}); // follows owns kind 3
   assert.deepEqual(p.hoses.map((h) => h.name), ['profiles', 'follows']);
-  assert.deepEqual(p.legacyKinds, [10002]); // 3 now owned by the follows hose
+  assert.deepEqual(p.legacyKinds, [10002]);
   assert.deepEqual(sorted(p.kinds), [0, 3, 10002]);
 });
 

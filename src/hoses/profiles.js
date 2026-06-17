@@ -10,39 +10,20 @@
 // verifies each event's schnorr signature before trusting it — beacon is an
 // identity/SSO substrate, so a malicious relay must not be able to inject a
 // forged did:nostr profile.
-import { schnorr } from '@noble/curves/secp256k1.js';
-import { sha256 } from '@noble/hashes/sha2.js';
-import { hexToBytes, bytesToHex } from '@noble/hashes/utils.js';
+import { verifySignature } from './event.js';
 import { COLLECTIONS } from '../db.js';
 
 const KIND = 0;
-const HEX64 = /^[0-9a-f]{64}$/;
-const HEX128 = /^[0-9a-f]{128}$/;
-const enc = new TextEncoder();
-
-// NIP-01 event id: sha256 of the canonical serialization
-// [0, pubkey, created_at, kind, tags, content].
-function eventId(e) {
-  const serial = JSON.stringify([0, e.pubkey, e.created_at, e.kind, e.tags || [], e.content ?? '']);
-  return bytesToHex(sha256(enc.encode(serial)));
-}
 
 /**
- * Structural + cryptographic validation of a raw kind-0 event.
- * Rejects wrong kind, malformed fields, non-JSON content, a tampered `id`,
- * and any event whose schnorr signature doesn't verify against its pubkey.
+ * Validate a raw kind-0 event: right kind, JSON-parseable content (empty is
+ * allowed, treated as {}), plus the shared structural + schnorr-signature
+ * check. Rejects forged or tampered profiles so a relay can't inject one.
  */
 export function verifyEvent(e) {
   if (!e || e.kind !== KIND) return false;
-  if (typeof e.pubkey !== 'string' || !HEX64.test(e.pubkey)) return false;
-  if (!Number.isFinite(e.created_at)) return false;
-  if (typeof e.sig !== 'string' || !HEX128.test(e.sig)) return false;
-  // kind-0 content is a JSON object; empty string is allowed (treated as {}).
   if (e.content) { try { JSON.parse(e.content); } catch { return false; } }
-  const id = eventId(e);
-  if (e.id && e.id !== id) return false; // claimed id must match the content
-  try { return schnorr.verify(hexToBytes(e.sig), hexToBytes(id), hexToBytes(e.pubkey)); }
-  catch { return false; }
+  return verifySignature(e);
 }
 
 export default {
