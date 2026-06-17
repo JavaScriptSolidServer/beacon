@@ -53,6 +53,8 @@ The indexer is being reworked into composable **hoses** (`src/hoses/`), each own
 
 Every kind is now hose-owned; the legacy raw-upsert fallback is empty.
 
+Separately, an **active relay-health prober** (`node probe.js` / `npm run probe`) keeps the `relays` directory fresh: it dials every known relay for reachability + latency, reads the NIP-11 info doc for auth/payment requirements, and rolls up uptime. It self-schedules (`PROBE_INTERVAL`, default hourly) or runs a single sweep with `--once`. It's not a hose — it's active, not a subscription.
+
 ## License
 
 MIT
