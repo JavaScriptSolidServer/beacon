@@ -8,19 +8,20 @@
 // double-writing against the legacy firehose processes during the migration.
 import { upsertEvent, connect } from './db.js';
 import profilesHose from './hoses/profiles.js';
+import followsHose from './hoses/follows.js';
 import 'dotenv/config';
 
 const RELAYS = (process.env.RELAYS || 'wss://relay.damus.io,wss://nos.lol,wss://relay.primal.net')
   .split(',').map((s) => s.trim()).filter(Boolean);
 
 // All hoses that exist (grows each phase). `planIngest` selects which run.
-const ALL_HOSES = [profilesHose];
+const ALL_HOSES = [profilesHose, followsHose];
 
-// Kinds not yet migrated to a hose: 3 (follows), 10002 (relay lists). They use
-// the legacy raw-upsert path, on by default for local parity. Set
-// INDEX_LEGACY_KINDS=0 to turn it off so a single-hose deploy never writes
-// collections still owned by the legacy firehose/followshose processes.
-const LEGACY_KINDS = [3, 10002];
+// Kinds not yet migrated to a hose: 10002 (relay lists). They use the legacy
+// raw-upsert path, on by default for local parity. Set INDEX_LEGACY_KINDS=0 to
+// turn it off so a single-hose deploy never writes collections still owned by
+// the legacy firehose processes.
+const LEGACY_KINDS = [10002];
 
 /**
  * Resolve the ingest plan from the registered hoses + env switches. Pure (env

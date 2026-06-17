@@ -41,7 +41,12 @@ npm run serve               # read API only
 
 v0 — MVP: indexer + read API + the regression-compatible schema, plus the DID-document resolution endpoint (`/.well-known/did/nostr/:pubkey.json` via jss's `buildDidDocument`) and a `/relays` health directory.
 
-The indexer is being reworked into composable **hoses** (`src/hoses/`). Phase 1 is the **profiles hose** (kind 0): it schnorr-verifies each event before storing it, so a relay can't inject a forged `did:nostr` profile, and owns its Mongo indexes (incl. the `content_text` search index). Follows (kind 3) and relay lists (kind 10002) still use the raw upsert path until their phases.
+The indexer is being reworked into composable **hoses** (`src/hoses/`), each owning a set of event kinds, all sharing one schnorr signature check (`src/hoses/event.js`) so a relay can't inject forged data. Which hoses run is a switch — the `HOSES` env (comma list of names; default: all).
+
+- **Profiles** (kind 0) — verifies + stores the raw event latest-wins, owns its indexes incl. the `content_text` search index.
+- **Follows** (kind 3) — verifies + stores the derived social-graph shape `{ pubkey, follows:[hex…], count }` (so in-degree works), and harvests relay URLs from legacy kind-3 content into the `relays` directory.
+
+Relay lists (kind 10002) still use the raw upsert path until their phase.
 
 ## License
 
