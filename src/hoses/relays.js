@@ -43,8 +43,13 @@ function isBlockedHost(host) {
  * (trailing slash on bare origins), or null if it must not be stored/dialed.
  */
 export function safeRelayUrl(url) {
+  const raw = String(url);
+  // Real relay URLs are short and single-scheme. Reject length blowups,
+  // whitespace, and a second "://" (embedded scheme) — the signature of
+  // concatenated multi-relay junk packed into one tag by broken clients.
+  if (raw.length > 120 || /\s/.test(raw) || raw.indexOf('://') !== raw.lastIndexOf('://')) return null;
   let u;
-  try { u = new URL(String(url)); } catch { return null; }
+  try { u = new URL(raw); } catch { return null; }
   if (u.protocol !== 'wss:' && u.protocol !== 'ws:') return null;
   if (isBlockedHost(u.hostname)) return null;
   if (u.pathname === '' || u.pathname === '/') return `${u.protocol}//${u.host}/`;
@@ -68,8 +73,10 @@ const tms = (x) => (x ? new Date(x).getTime() || 0 : 0);
  *             e.g. a bomb) — keep the origin + richest few, drop the rest
  * - renames: a surviving doc's stored `relay` ≠ its canonical form
  * - stale:   (if staleDays) a survivor not checked within staleDays
+ * - notReal: (if realOnly) survivors that aren't a bare origin that has been
+ *            online at least once — i.e. the unverified/dead/path entries
  */
-export function planRelaySweep(docs, { maxPerHost = 3, staleDays = 0, now = 0 } = {}) {
+export function planRelaySweep(docs, { maxPerHost = 3, staleDays = 0, now = 0, realOnly = false } = {}) {
   const rich = (a, b) => (b.checksTotal || 0) - (a.checksTotal || 0) || tms(b.lastChecked) - tms(a.lastChecked);
   // 1. screen + canonicalize, group by canonical URL
   const byCanon = new Map();
@@ -102,7 +109,18 @@ export function planRelaySweep(docs, { maxPerHost = 3, staleDays = 0, now = 0 } 
     }
     survivors = kept;
   }
-  // 4. normalizations + stale among survivors
+  // 4. realOnly: keep only bare-origin relays online at least once (the
+  //    verified/reachable set); everything else is unverified/dead/path junk.
+  const notReal = [];
+  if (realOnly) {
+    const real = [];
+    for (const s of survivors) {
+      if (isOrigin(s._canon) && (s.checksOnline || 0) >= 1) real.push(s);
+      else notReal.push(s);
+    }
+    survivors = real;
+  }
+  // 5. normalizations + stale among final survivors
   const renames = [];
   const stale = [];
   const cutoff = staleDays && now ? now - staleDays * 864e5 : null;
@@ -110,7 +128,7 @@ export function planRelaySweep(docs, { maxPerHost = 3, staleDays = 0, now = 0 } 
     if (s.relay !== s._canon) renames.push({ doc: s, canonical: s._canon });
     if (cutoff && tms(s.lastChecked) < cutoff) stale.push(s);
   }
-  return { bad, dups, hostSpam, renames, stale, kept: survivors.length };
+  return { bad, dups, hostSpam, notReal, renames, stale, kept: survivors.length };
 }
 
 export async function ensureRelayDirectoryIndex(db) {

@@ -58,6 +58,18 @@ test('renorm flags survivors whose stored URL is not canonical', () => {
   assert.equal(p.renames[0].canonical, 'wss://nos.lol/');
 });
 
+test('realOnly: keep only bare origins online at least once', () => {
+  const docs = [
+    { _id: 1, relay: 'wss://good.example.com/', checksOnline: 3 },     // bare + online -> keep
+    { _id: 2, relay: 'wss://dead.example.com/', checksOnline: 0 },     // bare but never online -> notReal
+    { _id: 3, relay: 'wss://path.example.com/echo-zulu', checksOnline: 5 }, // online but has path -> notReal
+    { _id: 4, relay: 'wss://fresh.example.com/' },                     // no checksOnline -> notReal
+  ];
+  const p = planRelaySweep(docs, { realOnly: true });
+  assert.equal(p.kept, 1);
+  assert.deepEqual(ids(p.notReal), [2, 3, 4]);
+});
+
 test('stale prune by age (only when staleDays set)', () => {
   const now = 1_000_000_000_000;
   const docs = [
