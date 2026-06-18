@@ -23,10 +23,26 @@ export const DEFAULT_PROBE_RELAYS = [
   'wss://purplepag.es', 'wss://nostr.mom',
 ];
 
-/** The curated set of relays the prober is allowed to dial (screened). */
+/** The curated allowlist of relays the prober always dials (screened). */
 export function proberRelays(env = process.env) {
   const raw = env.PROBE_RELAYS ? env.PROBE_RELAYS.split(',') : DEFAULT_PROBE_RELAYS;
   return [...new Set(raw.map((u) => safeRelayUrl(String(u).trim())).filter(Boolean))];
+}
+
+/**
+ * Build the sweep target set: the allowlist plus already-verified candidates
+ * (relays that have been online ≥ 1×), screened and capped. Brand-new
+ * harvested candidates are NOT included — only relays that already proved
+ * themselves, so a freshly-published relay list can't make us dial new hosts.
+ */
+export function selectTargets(allowlist, candidates, cap = 1000) {
+  const set = new Set(allowlist);
+  for (const c of candidates) {
+    if (set.size >= cap) break;
+    const u = safeRelayUrl(c);
+    if (u) set.add(u);
+  }
+  return [...set].slice(0, cap);
 }
 
 export const USAGE = `beacon relay-health prober
@@ -38,11 +54,13 @@ Flags (override the matching env var):
   --concurrency <n>    relays probed in parallel (env PROBE_CONCURRENCY, default 25)
   --timeout <ms>       per-relay connect/HTTP timeout (env PROBE_TIMEOUT, default 7000)
   --interval <ms>      sweep interval when scheduling (env PROBE_INTERVAL, default 86400000 = daily)
+  --max <n>            cap relays probed per sweep (env PROBE_MAX, default 1000)
   -h, --help           show this help
 
-Targets: a curated allowlist only (env PROBE_RELAYS, comma list; default: a
-small built-in set of well-known relays). The harvested directory is NEVER
-dialed — expand the allowlist deliberately.`;
+Targets: the allowlist (env PROBE_RELAYS, comma list; default: a small built-in
+set) PLUS already-verified relays (online ≥ 1×), capped at --max. Brand-new
+harvested candidates are never dialed — only relays that already proved
+themselves, so a freshly-published relay list can't redirect our outbound.`;
 
 /** Parse prober CLI flags into an overlay (only keys the user passed). */
 export function parseArgs(argv = process.argv.slice(2)) {
@@ -55,6 +73,7 @@ export function parseArgs(argv = process.argv.slice(2)) {
     else if (a === '--concurrency') { const v = numNext(i); if (v !== undefined) { out.concurrency = v; i++; } }
     else if (a === '--timeout') { const v = numNext(i); if (v !== undefined) { out.timeout = v; i++; } }
     else if (a === '--interval') { const v = numNext(i); if (v !== undefined) { out.interval = v; i++; } }
+    else if (a === '--max') { const v = numNext(i); if (v !== undefined) { out.max = v; i++; } }
   }
   return out;
 }
@@ -67,6 +86,7 @@ export function proberConfig(env = process.env, argv = process.argv.slice(2)) {
     interval: flags.interval ?? pos(env.PROBE_INTERVAL, 86_400_000),
     concurrency: flags.concurrency ?? pos(env.PROBE_CONCURRENCY, 25),
     timeout: flags.timeout ?? pos(env.PROBE_TIMEOUT, 7_000),
+    cap: flags.max ?? pos(env.PROBE_MAX, 1_000),
     once: flags.once || env.RUN_ONCE === '1' || env.RUN_ONCE === 'true',
     help: !!flags.help,
   };
@@ -144,15 +164,23 @@ async function mapPool(items, concurrency, fn) {
   await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, worker));
 }
 
-/** One sweep over the curated allowlist (never the harvested directory). */
+/** Sweep targets: allowlist ∪ already-verified relays (stalest first), capped. */
+async function sweepTargets(db, cfg) {
+  const verified = await db.collection(RELAY_DIRECTORY)
+    .find({ checksOnline: { $gte: 1 } }, { projection: { relay: 1, _id: 0 } })
+    .sort({ lastChecked: 1 }).limit(cfg.cap).toArray();
+  return selectTargets(proberRelays(), verified.map((d) => d.relay), cfg.cap);
+}
+
+/** One sweep over the allowlist + verified candidates (never new harvest). */
 export async function sweepOnce(db, cfg) {
-  const relays = proberRelays(); // allowlist only — attacker-fed data is never dialed
+  const relays = await sweepTargets(db, cfg);
   let online = 0;
   await mapPool(relays, cfg.concurrency, async (relay) => {
     try { if ((await probeRelay(db, relay, cfg)).online) online++; }
     catch (e) { console.error(`[beacon] probe error ${relay}: ${e.message}`); }
   });
-  console.log(`[beacon] relay sweep (allowlist): ${online}/${relays.length} online`);
+  console.log(`[beacon] relay sweep: ${online}/${relays.length} online (allowlist + verified, cap ${cfg.cap})`);
   return { total: relays.length, online };
 }
 
