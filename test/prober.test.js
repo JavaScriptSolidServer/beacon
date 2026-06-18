@@ -3,7 +3,7 @@
 // manual smoke run, not here.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseArgs, proberConfig, relayInfoUrl, nip11Flags } from '../src/prober.js';
+import { parseArgs, proberConfig, relayInfoUrl, nip11Flags, proberRelays, DEFAULT_PROBE_RELAYS } from '../src/prober.js';
 
 test('parseArgs: flags', () => {
   assert.deepEqual(parseArgs(['--once']), { once: true });
@@ -18,12 +18,23 @@ test('parseArgs: non-numeric value is ignored (not consumed as flag value)', () 
   assert.deepEqual(parseArgs(['--concurrency', 'abc']), {});
 });
 
-test('proberConfig: defaults', () => {
+test('proberConfig: defaults (daily)', () => {
   const c = proberConfig({}, []);
-  assert.equal(c.interval, 3_600_000);
+  assert.equal(c.interval, 86_400_000);
   assert.equal(c.concurrency, 25);
   assert.equal(c.timeout, 7_000);
   assert.equal(c.once, false);
+});
+
+test('proberRelays: default is the built-in allowlist (screened)', () => {
+  const r = proberRelays({});
+  assert.equal(r.length, DEFAULT_PROBE_RELAYS.length);
+  assert.ok(r.every((u) => u.startsWith('wss://')));
+});
+
+test('proberRelays: PROBE_RELAYS overrides; junk/SSRF entries dropped', () => {
+  const r = proberRelays({ PROBE_RELAYS: 'wss://relay.example.com, ws://127.0.0.1/, garbage, wss://nos.lol' });
+  assert.deepEqual(r, ['wss://relay.example.com/', 'wss://nos.lol/']); // loopback + junk screened out
 });
 
 test('proberConfig: env applies, non-positive falls back to default', () => {
