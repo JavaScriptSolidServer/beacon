@@ -116,24 +116,46 @@ const RELAY_FIELDS = {
   requiresAuth: 1, requiresPayment: 1, lastChecked: 1, checksOnline: 1, checksTotal: 1,
 };
 
+// Tab filters → the Mongo match for each. `all` is the whole directory.
+const RELAY_FILTERS = {
+  all: {},
+  online: { online: true },
+  writable: { acceptsEvents: true },
+  paid: { requiresPayment: true },
+  auth: { requiresAuth: true },
+};
+
 /**
- * Read the relay-health directory. Returns a summary (for the freshness caveat)
- * plus the matching rows. `online` filters to live relays; `sort` is one of
- * 'quality' (uptime desc, latency asc), 'latency', or 'recent' (last checked).
+ * Read the relay-health directory in one round-trip ($facet): per-tab `counts`
+ * (all/online/writable/paid/auth), the freshest `lastChecked` (freshness
+ * caveat), and the filtered+sorted page. `filter` is a tab key (default
+ * 'online'); `sort` is 'recent' (default), 'quality', or 'latency'.
  */
-export async function relaysDirectory({ online = false, sort = 'quality', limit = 300 } = {}) {
+export async function relaysDirectory({ filter = 'online', sort = 'recent', limit = 1000 } = {}) {
   const col = (await connect()).collection(RELAY_DIRECTORY);
-  const filter = online ? { online: true } : {};
-  const sortSpec = sort === 'recent' ? { lastChecked: -1 }
+  const match = RELAY_FILTERS[filter] || RELAY_FILTERS.online;
+  const sortSpec = sort === 'quality' ? { uptime: -1, responseTime: 1 }
     : sort === 'latency' ? { responseTime: 1 }
-    : { uptime: -1, responseTime: 1 }; // 'quality'
-  const [total, onlineCount, newest, relays] = await Promise.all([
-    col.estimatedDocumentCount(),
-    col.countDocuments({ online: true }),
-    col.find({}, { projection: { _id: 0, lastChecked: 1 } }).sort({ lastChecked: -1 }).limit(1).toArray(),
-    col.find(filter, { projection: RELAY_FIELDS }).sort(sortSpec).limit(Math.min(Number(limit) || 300, 2000)).toArray(),
-  ]);
-  return { total, online: onlineCount, lastChecked: newest[0]?.lastChecked || null, relays };
+    : { lastChecked: -1 }; // 'recent'
+  const lim = Math.min(Number(limit) || 1000, 2000);
+  const count = (m) => (m && Object.keys(m).length ? [{ $match: m }, { $count: 'n' }] : [{ $count: 'n' }]);
+  const [res] = await col.aggregate([{
+    $facet: {
+      all: count(RELAY_FILTERS.all),
+      online: count(RELAY_FILTERS.online),
+      writable: count(RELAY_FILTERS.writable),
+      paid: count(RELAY_FILTERS.paid),
+      auth: count(RELAY_FILTERS.auth),
+      newest: [{ $sort: { lastChecked: -1 } }, { $limit: 1 }, { $project: { _id: 0, lastChecked: 1 } }],
+      page: [{ $match: match }, { $sort: sortSpec }, { $limit: lim }, { $project: RELAY_FIELDS }],
+    },
+  }]).toArray();
+  const n = (k) => res?.[k]?.[0]?.n || 0;
+  return {
+    counts: { all: n('all'), online: n('online'), writable: n('writable'), paid: n('paid'), auth: n('auth') },
+    lastChecked: res?.newest?.[0]?.lastChecked || null,
+    relays: res?.page || [],
+  };
 }
 
 // ---- graph metrics ---------------------------------------------------------

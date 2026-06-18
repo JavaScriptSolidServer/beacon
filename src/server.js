@@ -127,11 +127,11 @@ export async function startServer(port = process.env.PORT || 3000) {
     try { res.json(await getRelays(req.params.pubkey)); } catch (e) { next(e); }
   });
 
-  // relay-health directory (firehose data): { total, online, lastChecked, relays }
+  // relay-health directory (firehose data): { counts, lastChecked, relays }
   app.get('/api/relays-directory', async (req, res, next) => {
     try {
       res.json(await relaysDirectory({
-        online: req.query.online === '1' || req.query.online === 'true',
+        filter: req.query.filter,
         sort: req.query.sort,
         limit: req.query.limit,
       }));
