@@ -164,12 +164,16 @@ async function mapPool(items, concurrency, fn) {
   await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, worker));
 }
 
-/** Sweep targets: allowlist ∪ already-verified relays (stalest first), capped. */
+/** Sweep targets: allowlist ∪ relays we already track (stalest first), capped.
+ * Membership = `lastChecked` exists (we've probed it before) — decoupled from
+ * the uptime counters so those can be reset without losing the rotation, and
+ * so offline-but-known relays stay in rotation (and can recover). Brand-new
+ * harvested candidates (never probed) are excluded. */
 async function sweepTargets(db, cfg) {
-  const verified = await db.collection(RELAY_DIRECTORY)
-    .find({ checksOnline: { $gte: 1 } }, { projection: { relay: 1, _id: 0 } })
+  const tracked = await db.collection(RELAY_DIRECTORY)
+    .find({ lastChecked: { $exists: true } }, { projection: { relay: 1, _id: 0 } })
     .sort({ lastChecked: 1 }).limit(cfg.cap).toArray();
-  return selectTargets(proberRelays(), verified.map((d) => d.relay), cfg.cap);
+  return selectTargets(proberRelays(), tracked.map((d) => d.relay), cfg.cap);
 }
 
 /** One sweep over the allowlist + verified candidates (never new harvest). */
