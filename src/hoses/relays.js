@@ -54,6 +54,65 @@ export function safeRelayUrl(url) {
 // Back-compat alias (older callers/tests): same screening as safeRelayUrl.
 export const canonicalizeRelayUrl = safeRelayUrl;
 
+const hostOf = (u) => { try { return new URL(u).host; } catch { return null; } };
+const isOrigin = (u) => { try { const x = new URL(u); return x.pathname === '/' ? 1 : 0; } catch { return 0; } };
+const tms = (x) => (x ? new Date(x).getTime() || 0 : 0);
+
+/**
+ * Plan a relay-directory cleanup (pure — pass docs + options, no I/O). Returns
+ * docs to delete by category plus URL normalizations. Re-runnable / idempotent.
+ *
+ * - bad:     fails safeRelayUrl (malformed / SSRF / non-ws)
+ * - dups:    multiple docs share a canonical URL — keep the richest
+ * - hostSpam: a host has > maxPerHost distinct URLs (path-variant flooding,
+ *             e.g. a bomb) — keep the origin + richest few, drop the rest
+ * - renames: a surviving doc's stored `relay` ≠ its canonical form
+ * - stale:   (if staleDays) a survivor not checked within staleDays
+ */
+export function planRelaySweep(docs, { maxPerHost = 3, staleDays = 0, now = 0 } = {}) {
+  const rich = (a, b) => (b.checksTotal || 0) - (a.checksTotal || 0) || tms(b.lastChecked) - tms(a.lastChecked);
+  // 1. screen + canonicalize, group by canonical URL
+  const byCanon = new Map();
+  const bad = [];
+  for (const d of docs) {
+    const c = d.relay && safeRelayUrl(d.relay);
+    if (!c) { bad.push(d); continue; }
+    (byCanon.get(c) || byCanon.set(c, []).get(c)).push(d);
+  }
+  // 2. dedup: one survivor per canonical (richest history wins)
+  const dups = [];
+  let survivors = [];
+  for (const [canon, ds] of byCanon) {
+    ds.sort(rich);
+    ds[0]._canon = canon;
+    survivors.push(ds[0]);
+    dups.push(...ds.slice(1));
+  }
+  // 3. host cap: trim path-variant flooding per host
+  const hostSpam = [];
+  if (maxPerHost > 0) {
+    const byHost = new Map();
+    for (const s of survivors) { const h = hostOf(s._canon); (byHost.get(h) || byHost.set(h, []).get(h)).push(s); }
+    const kept = [];
+    for (const [, ss] of byHost) {
+      if (ss.length <= maxPerHost) { kept.push(...ss); continue; }
+      ss.sort((a, b) => isOrigin(b._canon) - isOrigin(a._canon) || rich(a, b)); // origin first, then richest
+      kept.push(...ss.slice(0, maxPerHost));
+      hostSpam.push(...ss.slice(maxPerHost));
+    }
+    survivors = kept;
+  }
+  // 4. normalizations + stale among survivors
+  const renames = [];
+  const stale = [];
+  const cutoff = staleDays && now ? now - staleDays * 864e5 : null;
+  for (const s of survivors) {
+    if (s.relay !== s._canon) renames.push({ doc: s, canonical: s._canon });
+    if (cutoff && tms(s.lastChecked) < cutoff) stale.push(s);
+  }
+  return { bad, dups, hostSpam, renames, stale, kept: survivors.length };
+}
+
 export async function ensureRelayDirectoryIndex(db) {
   await db.collection(RELAY_DIRECTORY).createIndex({ relay: 1 })
     .catch((e) => { if (e?.code !== 85 && e?.code !== 86) throw e; });

@@ -12,7 +12,8 @@
     "index": "node -e \"import('./src/indexer.js').then(m => m.runIndexer())\"",
     "serve": "node -e \"import('./src/server.js').then(m => m.startServer())\"",
     "probe": "node probe.js",
-    "clean:relays": "node scripts/clean-relays.js"
+    "clean:relays": "node scripts/clean-relays.js",
+    "sweep:relays": "node scripts/sweep-relays.js"
   },
   "dependencies": {
     "@noble/curves": "^2.2.0",
