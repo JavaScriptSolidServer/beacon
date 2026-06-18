@@ -7,7 +7,7 @@
 // The relay universe is the `relays` collection itself, continuously seeded by
 // the follows/relay-lists hoses' URL harvesting.
 import { connect } from './db.js';
-import { ensureRelayDirectoryIndex } from './hoses/relays.js';
+import { ensureRelayDirectoryIndex, safeRelayUrl } from './hoses/relays.js';
 import 'dotenv/config';
 
 const RELAY_DIRECTORY = process.env.MONGO_RELAY_DIRECTORY_COLLECTION || 'relays';
@@ -126,14 +126,18 @@ async function mapPool(items, concurrency, fn) {
 /** One full sweep over every relay in the directory. Returns { total, online }. */
 export async function sweepOnce(db, cfg) {
   const docs = await db.collection(RELAY_DIRECTORY).find({}, { projection: { relay: 1, _id: 0 } }).toArray();
-  const relays = [...new Set(docs.map((d) => d.relay).filter(Boolean))];
+  const all = [...new Set(docs.map((d) => d.relay).filter(Boolean))];
+  // Defense-in-depth: never dial loopback/private/reserved targets, even if
+  // junk slipped into the directory before harvest hardening (SSRF guard).
+  const relays = all.filter((r) => safeRelayUrl(r));
+  const skipped = all.length - relays.length;
   let online = 0;
   await mapPool(relays, cfg.concurrency, async (relay) => {
     try { if ((await probeRelay(db, relay, cfg)).online) online++; }
     catch (e) { console.error(`[beacon] probe error ${relay}: ${e.message}`); }
   });
-  console.log(`[beacon] relay sweep: ${online}/${relays.length} online`);
-  return { total: relays.length, online };
+  console.log(`[beacon] relay sweep: ${online}/${relays.length} online${skipped ? ` (skipped ${skipped} unsafe)` : ''}`);
+  return { total: relays.length, online, skipped };
 }
 
 export async function runProber() {
