@@ -3,7 +3,7 @@
 // manual smoke run, not here.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseArgs, proberConfig, relayInfoUrl, nip11Flags, proberRelays, DEFAULT_PROBE_RELAYS } from '../src/prober.js';
+import { parseArgs, proberConfig, relayInfoUrl, nip11Flags, proberRelays, DEFAULT_PROBE_RELAYS, selectTargets } from '../src/prober.js';
 
 test('parseArgs: flags', () => {
   assert.deepEqual(parseArgs(['--once']), { once: true });
@@ -35,6 +35,20 @@ test('proberRelays: default is the built-in allowlist (screened)', () => {
 test('proberRelays: PROBE_RELAYS overrides; junk/SSRF entries dropped', () => {
   const r = proberRelays({ PROBE_RELAYS: 'wss://relay.example.com, ws://127.0.0.1/, garbage, wss://nos.lol' });
   assert.deepEqual(r, ['wss://relay.example.com/', 'wss://nos.lol/']); // loopback + junk screened out
+});
+
+test('selectTargets: allowlist + verified candidates, screened, deduped, capped', () => {
+  const allow = ['wss://relay.damus.io/', 'wss://nos.lol/'];
+  const cands = ['wss://verified-a.example.com/', 'ws://127.0.0.1/', 'wss://relay.damus.io/', 'wss://verified-b.example.com/'];
+  const out = selectTargets(allow, cands, 1000);
+  assert.deepEqual(out, ['wss://relay.damus.io/', 'wss://nos.lol/', 'wss://verified-a.example.com/', 'wss://verified-b.example.com/']);
+  // SSRF candidate dropped; damus de-duped against allowlist
+});
+
+test('selectTargets: respects the cap', () => {
+  const allow = ['wss://a.example.com/'];
+  const cands = ['wss://b.example.com/', 'wss://c.example.com/', 'wss://d.example.com/'];
+  assert.deepEqual(selectTargets(allow, cands, 2), ['wss://a.example.com/', 'wss://b.example.com/']);
 });
 
 test('proberConfig: env applies, non-positive falls back to default', () => {
