@@ -117,6 +117,12 @@
     padding:.4rem .85rem;border-radius:999px;cursor:pointer;transition:border-color .15s,color .15s,background .15s}
   .toggle:hover{border-color:var(--accent);color:var(--accent)}
   .toggle.on{background:var(--accent-soft);border-color:#dcd8f5;color:var(--accent)}
+  .tabs{display:flex;flex-wrap:wrap;gap:.4rem;margin:.2rem 0 1rem}
+  .tab{font-size:.84rem;font-weight:600;border:1px solid var(--line);background:#fff;color:var(--muted);padding:.42rem .85rem;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:.45rem;transition:border-color .15s,color .15s,background .15s}
+  .tab:hover{border-color:var(--accent);color:var(--accent)}
+  .tab.on{background:var(--accent-soft);border-color:#dcd8f5;color:var(--accent)}
+  .tab .tabn{font-family:var(--mono);font-size:.74rem;font-weight:500;color:var(--faint)}
+  .tab.on .tabn{color:var(--accent)}
   .caveat{font-size:.8rem;color:var(--faint);background:#fff;border:1px solid var(--line);border-radius:10px;padding:.55rem .8rem;margin-bottom:1rem}
   .rtable{width:100%;border-collapse:collapse;background:var(--surface);border:1px solid var(--line);border-radius:14px;overflow:hidden;font-size:.86rem}
   .rtable thead th{text-align:left;font-size:.7rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);
@@ -349,7 +355,14 @@ function wireLink(pubkey) {
 }
 
 // ---- relay directory (firehose health data) ----
-const relaysState = { online: true, sortKey: 'lastChecked', dir: -1, rows: [], meta: {} };
+const relaysState = { filter: 'online', sortKey: 'lastChecked', dir: -1, rows: [], meta: {} };
+const RTABS = [
+  { key: 'all', label: 'All' },
+  { key: 'online', label: 'Online' },
+  { key: 'writable', label: 'Writable' },
+  { key: 'paid', label: 'Paid' },
+  { key: 'auth', label: 'Auth' },
+];
 const RCOLS = [
   { key: 'relay', label: 'Relay', num: false },
   { key: 'online', label: 'Status', num: false },
@@ -394,20 +407,22 @@ function relayRow(r) {
 }
 
 function renderRelays() {
-  const { rows, meta, sortKey, dir, online } = relaysState;
+  const { rows, meta, sortKey, dir, filter } = relaysState;
+  const counts = meta.counts || {};
   const sorted = [...rows].sort((a, b) => cmpRelay(a, b, sortKey, dir));
   const head = RCOLS.map((c) => `<th class="${c.num ? 'num' : ''}" data-key="${c.key}">${c.label}${sortKey === c.key ? ` <span class="arrow">${dir < 0 ? '▼' : '▲'}</span>` : ''}</th>`).join('');
+  const tabs = RTABS.map((t) => `<button class="tab ${filter === t.key ? 'on' : ''}" data-filter="${t.key}">${t.label} <span class="tabn">${fmt(counts[t.key] || 0)}</span></button>`).join('');
+  const label = filter === 'all' ? 'relays' : `${filter} relays`;
   view.innerHTML = `<div class="detail">
     <div class="back" id="back">← all identities</div>
-    <div class="relays-head"><h2>Relay directory</h2>
-      <span class="sub"><strong>${fmt(meta.online)}</strong> online of <strong>${fmt(meta.total)}</strong> known relays</span></div>
-    <div class="caveat">Health snapshot · relays last checked <strong>${esc(meta.lastChecked ? ageStr(meta.lastChecked) + ' ago' : 'unknown')}</strong>. Live monitoring is paused, so these figures reflect that snapshot.</div>
-    <div class="relays-controls"><button class="toggle ${online ? 'on' : ''}" id="r-online">Online only</button></div>
+    <div class="relays-head"><h2>Relay directory</h2></div>
+    <div class="tabs">${tabs}</div>
+    <div class="caveat">Health checked live · relays last checked <strong>${esc(meta.lastChecked ? ageStr(meta.lastChecked) + ' ago' : 'unknown')}</strong>.</div>
     <div style="overflow-x:auto"><table class="rtable"><thead><tr>${head}</tr></thead><tbody>${sorted.map(relayRow).join('')}</tbody></table></div>
-    <div class="caveat" style="margin-top:1rem">Showing ${sorted.length} relays. Click a column to sort.</div>
+    <div class="caveat" style="margin-top:1rem">Showing ${sorted.length} ${label}. Click a column to sort.</div>
   </div>`;
   $('#back').onclick = () => navigate('/');
-  $('#r-online').onclick = () => { relaysState.online = !relaysState.online; relaysView(); };
+  view.querySelectorAll('.tabs .tab').forEach((b) => { b.onclick = () => { relaysState.filter = b.dataset.filter; relaysView(); }; });
   view.querySelectorAll('.rtable thead th').forEach((th) => { th.onclick = () => {
     const k = th.dataset.key;
     if (relaysState.sortKey === k) relaysState.dir = -relaysState.dir;
@@ -420,7 +435,7 @@ async function relaysView() {
   if ($('#q')) $('#q').value = '';
   $('#stat').innerHTML = '';
   view.innerHTML = '<div class="loading">loading relay directory…</div>';
-  const data = await fetch(`/api/relays-directory?limit=2000${relaysState.online ? '&online=1' : ''}`).then((r) => r.json()).catch(() => null);
+  const data = await fetch(`/api/relays-directory?filter=${encodeURIComponent(relaysState.filter)}&limit=2000`).then((r) => r.json()).catch(() => null);
   if (!data || !Array.isArray(data.relays)) { view.innerHTML = '<div class="loading">Could not load the relay directory.</div>'; return; }
   relaysState.rows = data.relays; relaysState.meta = data;
   renderRelays();
