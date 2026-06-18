@@ -120,8 +120,12 @@ const RELAY_FIELDS = {
 const RELAY_FILTERS = {
   all: {},
   online: { online: true },
-  // "public" = reachable, accepts events, and open to anyone (no pay/auth).
-  public: { online: true, acceptsEvents: true, requiresPayment: { $ne: true }, requiresAuth: { $ne: true } },
+  // "public" = reachable, accepts events, open to anyone (no pay/auth/pow/restricted).
+  public: {
+    online: true, acceptsEvents: true,
+    requiresPayment: { $ne: true }, requiresAuth: { $ne: true },
+    requiresPow: { $ne: true }, restrictedWrites: { $ne: true },
+  },
   paid: { requiresPayment: true },
   auth: { requiresAuth: true },
 };

@@ -3,7 +3,10 @@
 // manual smoke run, not here.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseArgs, proberConfig, relayInfoUrl, nip11Flags, proberRelays, DEFAULT_PROBE_RELAYS, selectTargets } from '../src/prober.js';
+import { schnorr } from '@noble/curves/secp256k1.js';
+import { hexToBytes, bytesToHex } from '@noble/hashes/utils.js';
+import { parseArgs, proberConfig, relayInfoUrl, nip11Flags, proberRelays, DEFAULT_PROBE_RELAYS, selectTargets, buildTestEvent, reasonCat } from '../src/prober.js';
+import { verifySignature } from '../src/hoses/event.js';
 
 test('parseArgs: flags', () => {
   assert.deepEqual(parseArgs(['--once']), { once: true });
@@ -72,11 +75,29 @@ test('relayInfoUrl: ws(s) -> http(s), else null', () => {
   assert.equal(relayInfoUrl('garbage'), null);
 });
 
-test('nip11Flags: reads limitation flags, defaults false', () => {
-  assert.deepEqual(nip11Flags({ limitation: { auth_required: true, payment_required: false } }),
-    { requiresAuth: true, requiresPayment: false });
-  assert.deepEqual(nip11Flags({ limitation: { payment_required: true } }),
-    { requiresAuth: false, requiresPayment: true });
-  assert.deepEqual(nip11Flags({}), { requiresAuth: false, requiresPayment: false });
-  assert.deepEqual(nip11Flags(null), { requiresAuth: false, requiresPayment: false });
+test('nip11Flags: reads auth/payment/pow/restricted, defaults false', () => {
+  assert.deepEqual(nip11Flags({ limitation: { auth_required: true, min_pow_difficulty: 28, restricted_writes: true } }),
+    { requiresAuth: true, requiresPayment: false, requiresPow: true, restrictedWrites: true });
+  assert.deepEqual(nip11Flags({ limitation: { min_pow_difficulty: 0 } }),
+    { requiresAuth: false, requiresPayment: false, requiresPow: false, restrictedWrites: false });
+  assert.deepEqual(nip11Flags(null),
+    { requiresAuth: false, requiresPayment: false, requiresPow: false, restrictedWrites: false });
+});
+
+test('reasonCat: parses NIP-01 OK-message prefixes', () => {
+  assert.equal(reasonCat('pow: 28 bits needed'), 'pow');
+  assert.equal(reasonCat('auth-required: please AUTH'), 'auth-required');
+  assert.equal(reasonCat('restricted: not in WoT'), 'restricted');
+  assert.equal(reasonCat('blocked: spam'), 'blocked');
+  assert.equal(reasonCat('rate-limited: slow down'), 'rate-limited');
+  assert.equal(reasonCat(''), '');
+  assert.equal(reasonCat('some freeform rejection'), 'rejected');
+});
+
+test('buildTestEvent: a valid signed ephemeral event', () => {
+  const priv = '0000000000000000000000000000000000000000000000000000000000000005';
+  const e = buildTestEvent(priv, 1_700_000_000_000);
+  assert.equal(e.kind, 20000);                 // NIP-16 ephemeral
+  assert.equal(e.pubkey, bytesToHex(schnorr.getPublicKey(hexToBytes(priv))));
+  assert.equal(verifySignature(e), true);      // properly signed
 });
