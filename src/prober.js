@@ -12,6 +12,23 @@ import 'dotenv/config';
 
 const RELAY_DIRECTORY = process.env.MONGO_RELAY_DIRECTORY_COLLECTION || 'relays';
 
+// SECURITY: the prober dials ONLY this curated allowlist — never the harvested
+// `relays` directory, which is attacker-influenceable (anyone can publish a
+// relay list we harvest). Decoupling the target set from attacker-controlled
+// data is what stops the prober being used to dial arbitrary hosts. Expand
+// deliberately via PROBE_RELAYS (comma list); safe-then-expand, not the reverse.
+export const DEFAULT_PROBE_RELAYS = [
+  'wss://relay.damus.io', 'wss://nos.lol', 'wss://relay.primal.net',
+  'wss://relay.nostr.band', 'wss://nostr.wine', 'wss://relay.snort.social',
+  'wss://purplepag.es', 'wss://nostr.mom',
+];
+
+/** The curated set of relays the prober is allowed to dial (screened). */
+export function proberRelays(env = process.env) {
+  const raw = env.PROBE_RELAYS ? env.PROBE_RELAYS.split(',') : DEFAULT_PROBE_RELAYS;
+  return [...new Set(raw.map((u) => safeRelayUrl(String(u).trim())).filter(Boolean))];
+}
+
 export const USAGE = `beacon relay-health prober
 
 Usage: node probe.js [flags]    (or: node src/prober.js [flags])
@@ -20,8 +37,12 @@ Flags (override the matching env var):
   --once               run a single sweep and exit (env RUN_ONCE=1)
   --concurrency <n>    relays probed in parallel (env PROBE_CONCURRENCY, default 25)
   --timeout <ms>       per-relay connect/HTTP timeout (env PROBE_TIMEOUT, default 7000)
-  --interval <ms>      sweep interval when scheduling (env PROBE_INTERVAL, default 3600000)
-  -h, --help           show this help`;
+  --interval <ms>      sweep interval when scheduling (env PROBE_INTERVAL, default 86400000 = daily)
+  -h, --help           show this help
+
+Targets: a curated allowlist only (env PROBE_RELAYS, comma list; default: a
+small built-in set of well-known relays). The harvested directory is NEVER
+dialed — expand the allowlist deliberately.`;
 
 /** Parse prober CLI flags into an overlay (only keys the user passed). */
 export function parseArgs(argv = process.argv.slice(2)) {
@@ -43,7 +64,7 @@ export function proberConfig(env = process.env, argv = process.argv.slice(2)) {
   const flags = parseArgs(argv);
   const pos = (v, d) => { const n = Number(v); return Number.isFinite(n) && n > 0 ? n : d; };
   return {
-    interval: flags.interval ?? pos(env.PROBE_INTERVAL, 3_600_000),
+    interval: flags.interval ?? pos(env.PROBE_INTERVAL, 86_400_000),
     concurrency: flags.concurrency ?? pos(env.PROBE_CONCURRENCY, 25),
     timeout: flags.timeout ?? pos(env.PROBE_TIMEOUT, 7_000),
     once: flags.once || env.RUN_ONCE === '1' || env.RUN_ONCE === 'true',
@@ -123,21 +144,16 @@ async function mapPool(items, concurrency, fn) {
   await Promise.all(Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, worker));
 }
 
-/** One full sweep over every relay in the directory. Returns { total, online }. */
+/** One sweep over the curated allowlist (never the harvested directory). */
 export async function sweepOnce(db, cfg) {
-  const docs = await db.collection(RELAY_DIRECTORY).find({}, { projection: { relay: 1, _id: 0 } }).toArray();
-  const all = [...new Set(docs.map((d) => d.relay).filter(Boolean))];
-  // Defense-in-depth: never dial loopback/private/reserved targets, even if
-  // junk slipped into the directory before harvest hardening (SSRF guard).
-  const relays = all.filter((r) => safeRelayUrl(r));
-  const skipped = all.length - relays.length;
+  const relays = proberRelays(); // allowlist only — attacker-fed data is never dialed
   let online = 0;
   await mapPool(relays, cfg.concurrency, async (relay) => {
     try { if ((await probeRelay(db, relay, cfg)).online) online++; }
     catch (e) { console.error(`[beacon] probe error ${relay}: ${e.message}`); }
   });
-  console.log(`[beacon] relay sweep: ${online}/${relays.length} online${skipped ? ` (skipped ${skipped} unsafe)` : ''}`);
-  return { total: relays.length, online, skipped };
+  console.log(`[beacon] relay sweep (allowlist): ${online}/${relays.length} online`);
+  return { total: relays.length, online };
 }
 
 export async function runProber() {
