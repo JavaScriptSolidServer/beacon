@@ -120,7 +120,8 @@ const RELAY_FIELDS = {
 const RELAY_FILTERS = {
   all: {},
   online: { online: true },
-  writable: { acceptsEvents: true },
+  // "public" = reachable, accepts events, and open to anyone (no pay/auth).
+  public: { online: true, acceptsEvents: true, requiresPayment: { $ne: true }, requiresAuth: { $ne: true } },
   paid: { requiresPayment: true },
   auth: { requiresAuth: true },
 };
@@ -143,7 +144,7 @@ export async function relaysDirectory({ filter = 'online', sort = 'recent', limi
     $facet: {
       all: count(RELAY_FILTERS.all),
       online: count(RELAY_FILTERS.online),
-      writable: count(RELAY_FILTERS.writable),
+      public: count(RELAY_FILTERS.public),
       paid: count(RELAY_FILTERS.paid),
       auth: count(RELAY_FILTERS.auth),
       newest: [{ $sort: { lastChecked: -1 } }, { $limit: 1 }, { $project: { _id: 0, lastChecked: 1 } }],
@@ -152,7 +153,7 @@ export async function relaysDirectory({ filter = 'online', sort = 'recent', limi
   }]).toArray();
   const n = (k) => res?.[k]?.[0]?.n || 0;
   return {
-    counts: { all: n('all'), online: n('online'), writable: n('writable'), paid: n('paid'), auth: n('auth') },
+    counts: { all: n('all'), online: n('online'), public: n('public'), paid: n('paid'), auth: n('auth') },
     lastChecked: res?.newest?.[0]?.lastChecked || null,
     relays: res?.page || [],
   };
