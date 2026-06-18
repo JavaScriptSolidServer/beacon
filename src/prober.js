@@ -6,11 +6,30 @@
 //
 // The relay universe is the `relays` collection itself, continuously seeded by
 // the follows/relay-lists hoses' URL harvesting.
+import { schnorr } from '@noble/curves/secp256k1.js';
+import { hexToBytes, bytesToHex } from '@noble/hashes/utils.js';
 import { connect } from './db.js';
 import { ensureRelayDirectoryIndex, safeRelayUrl } from './hoses/relays.js';
+import { eventId } from './hoses/event.js';
 import 'dotenv/config';
 
 const RELAY_DIRECTORY = process.env.MONGO_RELAY_DIRECTORY_COLLECTION || 'relays';
+const PROBE_KIND = 20000; // NIP-16 ephemeral: relays relay it but never store it
+
+// Build a signed ephemeral event for the write-test, from a throwaway key.
+export function buildTestEvent(privHex, nowMs) {
+  const priv = hexToBytes(privHex);
+  const e = { pubkey: bytesToHex(schnorr.getPublicKey(priv)), created_at: Math.floor((nowMs || Date.now()) / 1000), kind: PROBE_KIND, tags: [], content: '' };
+  const id = eventId(e);
+  return { ...e, id, sig: bytesToHex(schnorr.sign(hexToBytes(id), priv)) };
+}
+
+// Machine-readable category from a relay's OK message (NIP-01 prefixes:
+// pow / auth-required / payment-required / restricted / rate-limited / blocked…).
+export function reasonCat(msg) {
+  const m = String(msg || '').match(/^\s*([a-z][a-z-]*):/i);
+  return m ? m[1].toLowerCase() : (String(msg || '').trim() ? 'rejected' : '');
+}
 
 // SECURITY: the prober dials ONLY this curated allowlist — never the harvested
 // `relays` directory, which is attacker-influenceable (anyone can publish a
@@ -87,6 +106,7 @@ export function proberConfig(env = process.env, argv = process.argv.slice(2)) {
     concurrency: flags.concurrency ?? pos(env.PROBE_CONCURRENCY, 25),
     timeout: flags.timeout ?? pos(env.PROBE_TIMEOUT, 7_000),
     cap: flags.max ?? pos(env.PROBE_MAX, 1_000),
+    privkey: env.PROBE_PRIVKEY || null, // throwaway key enables the write-test; off if unset
     once: flags.once || env.RUN_ONCE === '1' || env.RUN_ONCE === 'true',
     help: !!flags.help,
   };
@@ -106,19 +126,45 @@ export function relayInfoUrl(wsUrl) {
 /** Extract the health-relevant flags from a NIP-11 relay info document. */
 export function nip11Flags(info) {
   const lim = (info && typeof info === 'object' && info.limitation) || {};
-  return { requiresAuth: !!lim.auth_required, requiresPayment: !!lim.payment_required };
+  return {
+    requiresAuth: !!lim.auth_required,
+    requiresPayment: !!lim.payment_required,
+    requiresPow: Number(lim.min_pow_difficulty) > 0,
+    restrictedWrites: !!lim.restricted_writes,
+  };
 }
 
-/** Open a WebSocket; resolve { online, responseTime, error }. Never rejects. */
-export function checkRelay(url, timeoutMs) {
+/**
+ * Open a WebSocket; resolve { online, responseTime, error }. If `testEvent` is
+ * given, also publish it on open and capture the relay's OK → `publish:
+ * {accepted, reason}` (ground-truth writeability). Never rejects.
+ */
+export function checkRelay(url, timeoutMs, testEvent = null) {
   return new Promise((resolve) => {
     const start = Date.now();
-    let done = false, ws, timer;
+    let done = false, ws, timer, openMs = null;
     const finish = (r) => { if (done) return; done = true; clearTimeout(timer); try { ws?.close(); } catch {} resolve(r); };
-    timer = setTimeout(() => finish({ online: false, responseTime: null, error: 'timeout' }), timeoutMs);
+    // On timeout: if we opened, the relay is online but didn't ack our event.
+    timer = setTimeout(() => finish(openMs == null
+      ? { online: false, responseTime: null, error: 'timeout' }
+      : { online: true, responseTime: openMs, error: null, publish: testEvent ? { accepted: false, reason: 'timeout' } : undefined }), timeoutMs);
     try { ws = new WebSocket(url); } catch (e) { return finish({ online: false, responseTime: null, error: String(e?.message || e) }); }
-    ws.addEventListener('open', () => finish({ online: true, responseTime: Date.now() - start, error: null }));
-    ws.addEventListener('error', (e) => finish({ online: false, responseTime: null, error: e?.message || 'error' }));
+    ws.addEventListener('open', () => {
+      openMs = Date.now() - start;
+      if (testEvent) ws.send(JSON.stringify(['EVENT', testEvent])); // wait for OK
+      else finish({ online: true, responseTime: openMs, error: null });
+    });
+    ws.addEventListener('message', (m) => {
+      if (!testEvent) return;
+      try {
+        const d = JSON.parse(typeof m.data === 'string' ? m.data : m.data.toString());
+        if (d[0] === 'OK' && d[1] === testEvent.id) finish({ online: true, responseTime: openMs, error: null, publish: { accepted: !!d[2], reason: d[2] ? '' : reasonCat(d[3]) } });
+        else if (d[0] === 'AUTH') finish({ online: true, responseTime: openMs, error: null, publish: { accepted: false, reason: 'auth-required' } });
+      } catch { /* ignore malformed frames */ }
+    });
+    ws.addEventListener('error', (e) => finish(openMs == null
+      ? { online: false, responseTime: null, error: e?.message || 'error' }
+      : { online: true, responseTime: openMs, error: null, publish: testEvent ? { accepted: false, reason: 'error' } : undefined }));
   });
 }
 
@@ -137,8 +183,8 @@ export async function fetchNip11(url, timeoutMs) {
 }
 
 /** Probe one relay and persist the result (uptime rolled up from running totals). */
-export async function probeRelay(db, relay, cfg) {
-  const conn = await checkRelay(relay, cfg.timeout);
+export async function probeRelay(db, relay, cfg, testEvent = null) {
+  const conn = await checkRelay(relay, cfg.timeout, testEvent);
   const nip11 = conn.online ? await fetchNip11(relay, cfg.timeout) : null;
   await db.collection(RELAY_DIRECTORY).updateOne({ relay }, [
     {
@@ -147,7 +193,8 @@ export async function probeRelay(db, relay, cfg) {
         online: conn.online,
         responseTime: conn.responseTime,
         lastError: conn.error,
-        ...(nip11 ? { requiresAuth: nip11.requiresAuth, requiresPayment: nip11.requiresPayment } : {}),
+        ...(nip11 ? { requiresAuth: nip11.requiresAuth, requiresPayment: nip11.requiresPayment, requiresPow: nip11.requiresPow, restrictedWrites: nip11.restrictedWrites } : {}),
+        ...(conn.publish ? { acceptsEvents: conn.publish.accepted, publishReason: conn.publish.reason, lastPublishTest: '$$NOW' } : {}),
         checksTotal: { $add: [{ $ifNull: ['$checksTotal', 0] }, 1] },
         checksOnline: { $add: [{ $ifNull: ['$checksOnline', 0] }, conn.online ? 1 : 0] },
       },
@@ -179,12 +226,14 @@ async function sweepTargets(db, cfg) {
 /** One sweep over the allowlist + verified candidates (never new harvest). */
 export async function sweepOnce(db, cfg) {
   const relays = await sweepTargets(db, cfg);
+  // One ephemeral test event per sweep (only if a throwaway key is configured).
+  const testEvent = cfg.privkey ? buildTestEvent(cfg.privkey) : null;
   let online = 0;
   await mapPool(relays, cfg.concurrency, async (relay) => {
-    try { if ((await probeRelay(db, relay, cfg)).online) online++; }
+    try { if ((await probeRelay(db, relay, cfg, testEvent)).online) online++; }
     catch (e) { console.error(`[beacon] probe error ${relay}: ${e.message}`); }
   });
-  console.log(`[beacon] relay sweep: ${online}/${relays.length} online (allowlist + verified, cap ${cfg.cap})`);
+  console.log(`[beacon] relay sweep: ${online}/${relays.length} online (allowlist + verified, cap ${cfg.cap}${testEvent ? ', write-test on' : ''})`);
   return { total: relays.length, online };
 }
 
@@ -193,7 +242,7 @@ export async function runProber() {
   const db = await connect();
   await ensureRelayDirectoryIndex(db);
   if (cfg.once) { await sweepOnce(db, cfg); return { stop() {} }; }
-  console.log(`[beacon] relay-health prober: every ${Math.round(cfg.interval / 60000)}min, concurrency ${cfg.concurrency}, timeout ${cfg.timeout}ms`);
+  console.log(`[beacon] relay-health prober: every ${Math.round(cfg.interval / 60000)}min, concurrency ${cfg.concurrency}, timeout ${cfg.timeout}ms, write-test ${cfg.privkey ? 'on' : 'off'}`);
   await sweepOnce(db, cfg);
   const timer = setInterval(() => sweepOnce(db, cfg).catch((e) => console.error('[beacon] sweep error:', e.message)), cfg.interval);
   const stop = () => clearInterval(timer);
