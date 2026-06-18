@@ -130,9 +130,9 @@ const RELAY_FILTERS = {
  * Read the relay-health directory in one round-trip ($facet): per-tab `counts`
  * (all/online/writable/paid/auth), the freshest `lastChecked` (freshness
  * caveat), and the filtered+sorted page. `filter` is a tab key (default
- * 'online'); `sort` is 'recent' (default), 'quality', or 'latency'.
+ * 'public'); `sort` is 'quality' (default, uptime desc), 'recent', or 'latency'.
  */
-export async function relaysDirectory({ filter = 'online', sort = 'recent', limit = 1000 } = {}) {
+export async function relaysDirectory({ filter = 'public', sort = 'quality', limit = 1000 } = {}) {
   const col = (await connect()).collection(RELAY_DIRECTORY);
   const match = RELAY_FILTERS[filter] || RELAY_FILTERS.online;
   const sortSpec = sort === 'quality' ? { uptime: -1, responseTime: 1 }

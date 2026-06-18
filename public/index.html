@@ -355,7 +355,7 @@ function wireLink(pubkey) {
 }
 
 // ---- relay directory (firehose health data) ----
-const relaysState = { filter: 'online', sortKey: 'lastChecked', dir: -1, rows: [], meta: {} };
+const relaysState = { filter: 'public', sortKey: 'uptime', dir: -1, rows: [], meta: {} };
 const RTABS = [
   { key: 'all', label: 'All' },
   { key: 'online', label: 'Online' },
