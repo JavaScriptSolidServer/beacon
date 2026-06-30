@@ -5,6 +5,11 @@
 //   - type: DIDNostr
 //   - Multikey VM with publicKeyMultibase = f + e701 + 02 + <x-only hex>
 //   - enhanced: profile (kind 0), follows (kind 3), service/Relay (kind 10002)
+//   - profile.created_at (kind-0 created_at, Unix seconds; spec #117)
+//   - follows bounded to a subset; the full signed list is the kind-3 event
+//     on the relays (spec #104/#125)
+//   - modified (dcterms:modified, ISO-8601) = max(created_at) over the signed
+//     parts composed into the document (spec #106)
 //
 // Per RFC JavaScriptSolidServer/JavaScriptSolidServer#572 this is intended to
 // converge with jss's shared `buildDidDocument` once that is extracted as a
@@ -12,6 +17,14 @@
 // is correct now (and avoids the divergent-generator bugs of nostr-labs/nostr-beacon#3).
 
 const HEX64 = /^[0-9a-f]{64}$/;
+
+// Upper bound on follows inlined into the document. Large lists would bloat a
+// cacheable document; the complete signed list is the kind-3 event on the relays.
+const FOLLOWS_LIMIT = 500;
+
+// dcterms:modified serialized as ISO-8601 UTC, no sub-second precision, from a
+// Nostr created_at (Unix seconds).
+const isoFromUnix = (sec) => new Date(sec * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
 
 export function buildDidDocument(pubkey, { profile, follows, relays } = {}) {
   const hex = String(pubkey || '').toLowerCase();
@@ -39,7 +52,7 @@ export function buildDidDocument(pubkey, { profile, follows, relays } = {}) {
       const p = {};
       for (const k of ['name', 'about', 'picture', 'website', 'nip05', 'lud16']) if (c[k]) p[k] = c[k];
       if (c.display_name && !p.name) p.name = c.display_name;
-      if (profile.created_at) p.timestamp = profile.created_at;
+      if (profile.created_at) p.created_at = profile.created_at;
       if (Object.keys(p).length) doc.profile = p;
       if (Array.isArray(c.alsoKnownAs) && c.alsoKnownAs.length) doc.alsoKnownAs = c.alsoKnownAs;
     } catch { /* malformed kind-0 content */ }
@@ -57,7 +70,7 @@ export function buildDidDocument(pubkey, { profile, follows, relays } = {}) {
   const f = followHexes
     .filter((h) => HEX64.test(String(h).toLowerCase()))
     .map((h) => `did:nostr:${String(h).toLowerCase()}`);
-  if (f.length) doc.follows = f;
+  if (f.length) doc.follows = f.slice(0, FOLLOWS_LIMIT);
 
   // kind 10002 -> service (Relay)
   if (Array.isArray(relays?.tags)) {
@@ -66,6 +79,16 @@ export function buildDidDocument(pubkey, { profile, follows, relays } = {}) {
       .map((t, i) => ({ id: `${did}#relay${i + 1}`, type: 'Relay', serviceEndpoint: t[1] }));
     if (svc.length) doc.service = svc;
   }
+
+  // Subject provenance: max(created_at) over the signed parts actually composed
+  // into the document, serialized ISO-8601. Representation-only changes are not
+  // reflected here (those are conveyed by ETag / Last-Modified).
+  const stamps = [
+    doc.profile && profile?.created_at,
+    doc.follows && follows?.created_at,
+    doc.service && relays?.created_at,
+  ].filter(Number.isFinite);
+  if (stamps.length) doc.modified = isoFromUnix(Math.max(...stamps));
 
   return doc;
 }
