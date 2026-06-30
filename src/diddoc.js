@@ -22,9 +22,15 @@ const HEX64 = /^[0-9a-f]{64}$/;
 // cacheable document; the complete signed list is the kind-3 event on the relays.
 const FOLLOWS_LIMIT = 500;
 
-// dcterms:modified serialized as ISO-8601 UTC, no sub-second precision, from a
-// Nostr created_at (Unix seconds).
-const isoFromUnix = (sec) => new Date(sec * 1000).toISOString().replace(/\.\d{3}Z$/, 'Z');
+// dcterms:modified serialized as ISO-8601 UTC (no sub-second precision) from a
+// Nostr created_at (Unix seconds). Returns null for anything that is not a sane
+// integer timestamp or does not map to a representable date, so the public
+// resolver path never throws on a corrupt/hostile created_at.
+const isoFromUnix = (sec) => {
+  if (!Number.isSafeInteger(sec)) return null;
+  const d = new Date(sec * 1000);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+};
 
 export function buildDidDocument(pubkey, { profile, follows, relays } = {}) {
   const hex = String(pubkey || '').toLowerCase();
@@ -52,7 +58,7 @@ export function buildDidDocument(pubkey, { profile, follows, relays } = {}) {
       const p = {};
       for (const k of ['name', 'about', 'picture', 'website', 'nip05', 'lud16']) if (c[k]) p[k] = c[k];
       if (c.display_name && !p.name) p.name = c.display_name;
-      if (Number.isFinite(profile.created_at)) p.created_at = profile.created_at;
+      if (Number.isSafeInteger(profile.created_at)) p.created_at = profile.created_at;
       if (Object.keys(p).length) doc.profile = p;
       if (Array.isArray(c.alsoKnownAs) && c.alsoKnownAs.length) doc.alsoKnownAs = c.alsoKnownAs;
     } catch { /* malformed kind-0 content */ }
@@ -93,8 +99,11 @@ export function buildDidDocument(pubkey, { profile, follows, relays } = {}) {
     doc.profile && profile?.created_at,
     doc.follows && follows?.created_at,
     doc.service && relays?.created_at,
-  ].filter(Number.isFinite);
-  if (stamps.length) doc.modified = isoFromUnix(Math.max(...stamps));
+  ].filter(Number.isSafeInteger);
+  if (stamps.length) {
+    const iso = isoFromUnix(Math.max(...stamps));
+    if (iso) doc.modified = iso;
+  }
 
   return doc;
 }

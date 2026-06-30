@@ -48,6 +48,15 @@ test('follows is bounded; the full signed list stays in the kind-3 event', () =>
   assert.equal(d.follows.length, 500);
 });
 
+test('out-of-range created_at does not throw and is omitted (no modified)', () => {
+  const d = buildDidDocument(PK, {
+    profile: { content: JSON.stringify({ name: 'X' }), created_at: 1e308 },
+  });
+  assert.equal(d.profile.name, 'X');
+  assert.equal(d.profile.created_at, undefined); // not a safe integer -> omitted
+  assert.equal(d.modified, undefined);           // no valid stamp -> no modified
+});
+
 test('rejects a non-hex (e.g. npub) identifier', () => {
   assert.equal(buildDidDocument('npub1xxx'), null);
   assert.equal(buildDidDocument(''), null);
