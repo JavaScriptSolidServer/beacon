@@ -52,7 +52,7 @@ export function buildDidDocument(pubkey, { profile, follows, relays } = {}) {
       const p = {};
       for (const k of ['name', 'about', 'picture', 'website', 'nip05', 'lud16']) if (c[k]) p[k] = c[k];
       if (c.display_name && !p.name) p.name = c.display_name;
-      if (profile.created_at) p.created_at = profile.created_at;
+      if (Number.isFinite(profile.created_at)) p.created_at = profile.created_at;
       if (Object.keys(p).length) doc.profile = p;
       if (Array.isArray(c.alsoKnownAs) && c.alsoKnownAs.length) doc.alsoKnownAs = c.alsoKnownAs;
     } catch { /* malformed kind-0 content */ }
