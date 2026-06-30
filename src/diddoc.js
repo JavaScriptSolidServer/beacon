@@ -96,7 +96,8 @@ export function buildDidDocument(pubkey, { profile, follows, relays } = {}) {
   // into the document, serialized ISO-8601. Representation-only changes are not
   // reflected here (those are conveyed by ETag / Last-Modified).
   const stamps = [
-    doc.profile && profile?.created_at,
+    // kind-0 composes the doc via profile and/or alsoKnownAs
+    (doc.profile || doc.alsoKnownAs) && profile?.created_at,
     doc.follows && follows?.created_at,
     doc.service && relays?.created_at,
   ].filter(Number.isSafeInteger);

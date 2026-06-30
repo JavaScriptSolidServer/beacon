@@ -48,6 +48,15 @@ test('follows is bounded; the full signed list stays in the kind-3 event', () =>
   assert.equal(d.follows.length, 500);
 });
 
+test('alsoKnownAs-only kind-0 still contributes its created_at to modified', () => {
+  const d = buildDidDocument(PK, {
+    profile: { content: JSON.stringify({ alsoKnownAs: ['https://x.example/#me'] }), created_at: 300 },
+  });
+  assert.equal(d.profile, undefined); // no profile fields composed
+  assert.deepEqual(d.alsoKnownAs, ['https://x.example/#me']);
+  assert.equal(d.modified, '1970-01-01T00:05:00Z'); // kind-0 created_at (300) still counts
+});
+
 test('out-of-range created_at does not throw and is omitted (no modified)', () => {
   const d = buildDidDocument(PK, {
     profile: { content: JSON.stringify({ name: 'X' }), created_at: 1e308 },
