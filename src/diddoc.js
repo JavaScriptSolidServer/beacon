@@ -67,10 +67,16 @@ export function buildDidDocument(pubkey, { profile, follows, relays } = {}) {
   } else if (Array.isArray(follows?.follows)) {
     followHexes = follows.follows;
   }
-  const f = followHexes
-    .filter((h) => HEX64.test(String(h).toLowerCase()))
-    .map((h) => `did:nostr:${String(h).toLowerCase()}`);
-  if (f.length) doc.follows = f.slice(0, FOLLOWS_LIMIT);
+  // Collect up to FOLLOWS_LIMIT valid entries and stop — avoids validating/mapping
+  // the entire list (kind-3 events can carry thousands of tags) just to slice it.
+  const f = [];
+  for (const h of followHexes) {
+    const lc = String(h).toLowerCase();
+    if (!HEX64.test(lc)) continue;
+    f.push(`did:nostr:${lc}`);
+    if (f.length >= FOLLOWS_LIMIT) break;
+  }
+  if (f.length) doc.follows = f;
 
   // kind 10002 -> service (Relay)
   if (Array.isArray(relays?.tags)) {
