@@ -1,7 +1,7 @@
 // Build a spec-conformant did:nostr DID document from indexed events.
 //
 // Implements the current spec (https://nostrcg.github.io/did-nostr/):
-//   - @context: cid/v1 + nostr/context   (cf. nostrcg/did-nostr#90/#91)
+//   - @context: did/v1 + cid/v1 + nostr/context   (cf. nostrcg/did-nostr#136/#139)
 //   - type: DIDNostr
 //   - Multikey VM with publicKeyMultibase = f + e701 + 02 + <x-only hex>
 //   - enhanced: profile (kind 0), follows (kind 3), service/Relay (kind 10002)
@@ -38,7 +38,7 @@ export function buildDidDocument(pubkey, { profile, follows, relays } = {}) {
   const did = `did:nostr:${hex}`;
 
   const doc = {
-    '@context': ['https://www.w3.org/ns/cid/v1', 'https://w3id.org/nostr/context'],
+    '@context': ['https://www.w3.org/ns/did/v1', 'https://www.w3.org/ns/cid/v1', 'https://w3id.org/nostr/context'],
     id: did,
     type: 'DIDNostr',
     verificationMethod: [{
