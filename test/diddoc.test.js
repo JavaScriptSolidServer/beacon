@@ -5,9 +5,9 @@ import { buildDidDocument } from '../src/diddoc.js';
 
 const PK = '124c0fa99407182ece5a24fad9b7f6674902fc422843d3128d38a0afbee0fdd2';
 
-test('minimal doc is spec-shaped (cid/v1, Multikey, publicKeyMultibase)', () => {
+test('minimal doc is spec-shaped (did/v1 + cid/v1, Multikey, publicKeyMultibase)', () => {
   const d = buildDidDocument(PK);
-  assert.deepEqual(d['@context'], ['https://www.w3.org/ns/cid/v1', 'https://w3id.org/nostr/context']);
+  assert.deepEqual(d['@context'], ['https://www.w3.org/ns/did/v1', 'https://www.w3.org/ns/cid/v1', 'https://w3id.org/nostr/context']);
   assert.equal(d.id, `did:nostr:${PK}`);
   assert.equal(d.type, 'DIDNostr');
   assert.equal(d.verificationMethod[0].type, 'Multikey');
