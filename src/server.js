@@ -37,7 +37,35 @@ function renderShell(meta = {}) {
     `<meta name="twitter:description" content="${escAttr(m.description)}">`,
     `<meta name="twitter:image" content="${escAttr(image)}">`,
   ].join('\n  ');
-  return shell().replace('<!--OGP-->', tags);
+  // Function replacements so `$`-sequences in the payload are inert.
+  return shell().replace('<!--OGP-->', () => tags).replace('<!--DATA-->', () => m.dataIsland || '');
+}
+
+// ---- /relays data island ---------------------------------------------------
+// The directory embedded in the page as typed data objects, so the content is
+// crawlable and first paint needs no API round-trip. `type: "Relay"` matches
+// the service type in resolved did:nostr DID documents.
+export function relaysIslandHtml(dir, site = SITE) {
+  const island = {
+    '@context': 'https://w3id.org/nostr/context',
+    id: `${site}/relays`,
+    counts: dir.counts,
+    lastChecked: dir.lastChecked,
+    relays: (dir.relays || []).map((r) => ({ type: 'Relay', ...r })),
+  };
+  // `<` must never appear literally: a hostile relay URL containing
+  // "</script>" would otherwise break out of the island.
+  const json = JSON.stringify(island).replace(/</g, '\\u003c');
+  return `<script type="application/json" id="relays-data">${json}</script>`;
+}
+
+const RELAYS_ISLAND_TTL = 60_000; // the prober refreshes slowly; spare Mongo a per-view aggregate
+let relaysIslandCache = { at: 0, html: '' };
+async function relaysIsland() {
+  if (Date.now() - relaysIslandCache.at > RELAYS_ISLAND_TTL) {
+    relaysIslandCache = { at: Date.now(), html: relaysIslandHtml(await relaysDirectory()) };
+  }
+  return relaysIslandCache.html;
 }
 
 export async function startServer(port = process.env.PORT || 3000) {
@@ -58,12 +86,18 @@ export async function startServer(port = process.env.PORT || 3000) {
     url: `${SITE}/link`,
   })));
 
-  // relay directory shell
-  app.get('/relays', (_req, res) => res.type('html').send(renderShell({
-    title: 'Relay directory · nostr.social',
-    description: 'A health-checked directory of Nostr relays — uptime, latency, write-acceptance, and paid/auth requirements.',
-    url: `${SITE}/relays`,
-  })));
+  // relay directory shell, with the directory embedded as a data island
+  app.get('/relays', async (_req, res) => {
+    let dataIsland = '';
+    try { dataIsland = await relaysIsland(); }
+    catch { /* island is progressive enhancement; the page falls back to the API */ }
+    res.type('html').send(renderShell({
+      title: 'Relay directory · nostr.social',
+      description: 'A health-checked directory of Nostr relays — uptime, latency, write-acceptance, and paid/auth requirements.',
+      url: `${SITE}/relays`,
+      dataIsland,
+    }));
+  });
 
   // per-profile shell at /<pubkey> with that identity's OGP (crawlable canonical
   // URL). RegExp route constrained to 64-hex, so it never collides with /api,

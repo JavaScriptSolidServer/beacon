@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!--OGP-->
+<!--DATA-->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400..600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -431,11 +432,26 @@ function renderRelays() {
   }; });
 }
 
+// Consume-once hydration from the server-rendered data island (default filter
+// only). Falls back to the API when absent; later filter switches always fetch.
+function readRelaysIsland() {
+  if (relaysState.filter !== 'public') return null;
+  const el = document.getElementById('relays-data');
+  if (!el) return null;
+  let data = null;
+  try { data = JSON.parse(el.textContent); } catch { /* malformed island */ }
+  el.remove();
+  return (data && Array.isArray(data.relays)) ? data : null;
+}
+
 async function relaysView() {
   if ($('#q')) $('#q').value = '';
   $('#stat').innerHTML = '';
-  view.innerHTML = '<div class="loading">loading relay directory…</div>';
-  const data = await fetch(`/api/relays-directory?filter=${encodeURIComponent(relaysState.filter)}&limit=2000`).then((r) => r.json()).catch(() => null);
+  let data = readRelaysIsland();
+  if (!data) {
+    view.innerHTML = '<div class="loading">loading relay directory…</div>';
+    data = await fetch(`/api/relays-directory?filter=${encodeURIComponent(relaysState.filter)}&limit=2000`).then((r) => r.json()).catch(() => null);
+  }
   if (!data || !Array.isArray(data.relays)) { view.innerHTML = '<div class="loading">Could not load the relay directory.</div>'; return; }
   relaysState.rows = data.relays; relaysState.meta = data;
   renderRelays();
