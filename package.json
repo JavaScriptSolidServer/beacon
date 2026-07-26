@@ -1,6 +1,6 @@
 {
   "name": "nostr-beacon",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "type": "module",
   "description": "did:nostr social-graph indexer (profiles + follows + relay lists) on MongoDB. Same schema as nostr-beacon for regression; DID-doc generation delegates to jss buildDidDocument per RFC.",
   "bin": {
